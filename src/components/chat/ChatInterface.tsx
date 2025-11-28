@@ -212,11 +212,11 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
         <AnimatePresence>
           {messages.length === 0 ? (
             <motion.div
-              className="h-full flex flex-col items-center justify-center text-center space-y-4 px-4"
+              className="h-full flex flex-col items-center justify-center text-center space-y-6 px-4"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
             >
-              <div className="p-6 rounded-2xl bg-gradient-to-br from-primary/20 to-primary-glow/20 backdrop-blur-sm">
+              <div className="p-6 rounded-2xl bg-gradient-to-br from-primary/20 to-primary-glow/20 backdrop-blur-sm animate-glow">
                 <Bot className="w-16 h-16 text-primary" />
               </div>
               <h3 className="text-2xl font-bold">Welcome to JurisMind</h3>
@@ -224,7 +224,30 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
                 Ask me anything about law, upload documents for analysis, or search case laws.
                 I speak both English and বাংলা fluently.
               </p>
-              <div className="flex flex-wrap gap-2 justify-center">
+              
+              {/* Quick Action Suggestions */}
+              <div className="flex flex-wrap gap-2 justify-center max-w-2xl">
+                {[
+                  "What is the Limitation Act 1908?",
+                  "তালাকের নিয়ম কি?",
+                  "How to file an FIR?",
+                  "Explain Section 420 Penal Code",
+                  "Land registration process",
+                  "চুক্তির আবশ্যক উপাদান",
+                ].map((suggestion) => (
+                  <Button
+                    key={suggestion}
+                    variant="outline"
+                    size="sm"
+                    className="text-xs hover:bg-primary/10 hover:border-primary transition-all"
+                    onClick={() => setInput(suggestion)}
+                  >
+                    {suggestion}
+                  </Button>
+                ))}
+              </div>
+
+              <div className="flex flex-wrap gap-2 justify-center pt-4">
                 <Badge variant="secondary">Document Analysis</Badge>
                 <Badge variant="secondary">Case Law Search</Badge>
                 <Badge variant="secondary">Legal Drafting</Badge>
