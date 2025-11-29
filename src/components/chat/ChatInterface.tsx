@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, Mic, MicOff, Paperclip, Languages, Bot, Loader2, User } from 'lucide-react';
+import { Send, Mic, MicOff, Paperclip, Languages, Bot, Loader2, User, UserCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -107,14 +107,12 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
     setIsLoading(true);
 
     try {
-      // Create conversation if needed
       let convId = currentConversationId;
       if (!convId) {
         convId = await createConversation();
         if (!convId) throw new Error('Failed to create conversation');
       }
 
-      // Add user message
       const userMsg = await saveMessage(convId, 'user', userMessage);
       if (userMsg) {
         setMessages(prev => [...prev, {
@@ -125,7 +123,6 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
         }]);
       }
 
-      // Call AI edge function
       const { data, error } = await supabase.functions.invoke('legal-chat', {
         body: {
           messages: [...messages, { role: 'user', content: userMessage }],
@@ -136,7 +133,6 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
 
       if (error) throw error;
 
-      // Add assistant response
       const assistantMsg = await saveMessage(convId, 'assistant', data.response);
       if (assistantMsg) {
         setMessages(prev => [...prev, {
@@ -174,45 +170,12 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
 
   return (
     <div className="flex-1 flex flex-col h-full">
-      {/* Header */}
-      <div className="p-4 border-b border-border glass-panel flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-bold">Ask JurisMind</h2>
-          <p className="text-sm text-muted-foreground">Your AI legal assistant is ready to help</p>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <Select value={personality} onValueChange={(v: any) => setPersonality(v)}>
-            <SelectTrigger className="w-36">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="lawyer">{personalityIcons.lawyer} Lawyer Mode</SelectItem>
-              <SelectItem value="judge">{personalityIcons.judge} Judge Mode</SelectItem>
-              <SelectItem value="researcher">{personalityIcons.researcher} Researcher</SelectItem>
-              <SelectItem value="student">{personalityIcons.student} Student Mode</SelectItem>
-            </SelectContent>
-          </Select>
-
-          <Select value={language} onValueChange={(v: any) => setLanguage(v)}>
-            <SelectTrigger className="w-32">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="english">🇬🇧 English</SelectItem>
-              <SelectItem value="bangla">🇧🇩 বাংলা</SelectItem>
-              <SelectItem value="mixed">🌐 Mixed</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-
       {/* Messages */}
       <ScrollArea className="flex-1 p-4">
         <AnimatePresence>
           {messages.length === 0 ? (
             <motion.div
-              className="h-full flex flex-col items-center justify-center text-center space-y-6 px-4"
+              className="h-full flex flex-col items-center justify-center text-center space-y-6 px-4 pt-12"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
             >
@@ -313,8 +276,37 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
         </AnimatePresence>
       </ScrollArea>
 
-      {/* Input */}
+      {/* Input with Mode & Language Selectors */}
       <div className="p-4 border-t border-border glass-panel">
+        {/* Mode and Language Selectors */}
+        <div className="flex gap-2 mb-3">
+          <Select value={personality} onValueChange={(v: any) => setPersonality(v)}>
+            <SelectTrigger className="w-auto min-w-[140px] h-8 text-xs">
+              <UserCircle className="mr-1 h-3 w-3" />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="lawyer">{personalityIcons.lawyer} Lawyer Mode</SelectItem>
+              <SelectItem value="judge">{personalityIcons.judge} Judge Mode</SelectItem>
+              <SelectItem value="researcher">{personalityIcons.researcher} Researcher</SelectItem>
+              <SelectItem value="student">{personalityIcons.student} Student Mode</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Select value={language} onValueChange={(v: any) => setLanguage(v)}>
+            <SelectTrigger className="w-auto min-w-[120px] h-8 text-xs">
+              <Languages className="mr-1 h-3 w-3" />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="english">🇬🇧 English</SelectItem>
+              <SelectItem value="bangla">🇧🇩 বাংলা</SelectItem>
+              <SelectItem value="mixed">🌐 Mixed</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Input Area */}
         <div className="flex gap-2">
           <Button
             variant="outline"
@@ -325,7 +317,7 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
           </Button>
 
           <Textarea
-            placeholder="Ask about law, request document analysis, or search case laws..."
+            placeholder="Type your legal question here..."
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
