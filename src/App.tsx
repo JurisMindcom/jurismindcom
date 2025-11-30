@@ -14,6 +14,8 @@ import Templates from "./pages/Templates";
 import CaseLaw from "./pages/CaseLaw";
 import Documents from "./pages/Documents";
 import Admin from "./pages/Admin";
+import Settings from "./pages/Settings";
+import RecentConversations from "./pages/RecentConversations";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -36,6 +38,8 @@ const App = () => (
             <Route path="/case-law" element={<CaseLaw />} />
             <Route path="/documents" element={<Documents />} />
             <Route path="/admin" element={<Admin />} />
+            <Route path="/settings" element={<Settings />} />
+            <Route path="/recent-conversations" element={<RecentConversations />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>

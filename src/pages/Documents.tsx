@@ -1,15 +1,16 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { 
   Scale, ArrowLeft, FileText, Download, Trash2, Eye, 
-  Upload, Search, FolderOpen, File, Loader2
+  Upload, Search, FolderOpen, Loader2, X
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -19,7 +20,6 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -36,10 +36,15 @@ interface Document {
 const Documents = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [documents, setDocuments] = useState<Document[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(true);
+  const [isUploading, setIsUploading] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
+  const [previewDoc, setPreviewDoc] = useState<Document | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [deleteDoc, setDeleteDoc] = useState<Document | null>(null);
 
   useEffect(() => {
     checkAuthAndFetch();
@@ -59,45 +64,97 @@ const Documents = () => {
 
   const fetchDocuments = async (uid: string) => {
     setIsLoading(true);
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from('documents')
       .select('*')
       .eq('user_id', uid)
       .order('created_at', { ascending: false });
 
-    if (data) {
-      setDocuments(data);
-    }
+    if (data) setDocuments(data);
     setIsLoading(false);
   };
 
-  const handleDelete = async (docId: string) => {
-    const { error } = await supabase
-      .from('documents')
-      .delete()
-      .eq('id', docId);
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !userId) return;
 
-    if (error) {
-      toast({
-        title: "Error",
-        description: "Failed to delete document.",
-        variant: "destructive",
-      });
-    } else {
-      toast({
-        title: "Deleted",
-        description: "Document has been deleted.",
-      });
-      setDocuments(docs => docs.filter(d => d.id !== docId));
+    if (file.size > 20 * 1024 * 1024) {
+      toast({ title: "File too large", description: "Maximum file size is 20MB.", variant: "destructive" });
+      return;
+    }
+
+    setIsUploading(true);
+    const fileName = `${Date.now()}-${file.name}`;
+    const filePath = `${userId}/${fileName}`;
+
+    try {
+      const { error: uploadError } = await supabase.storage
+        .from('user-documents')
+        .upload(filePath, file);
+
+      if (uploadError) throw uploadError;
+
+      const { data, error } = await supabase.from('documents').insert({
+        user_id: userId,
+        filename: file.name,
+        file_type: file.type || 'application/octet-stream',
+        file_size: file.size,
+        storage_path: filePath,
+      }).select().single();
+
+      if (data) {
+        setDocuments(prev => [data, ...prev]);
+        toast({ title: "Uploaded", description: `${file.name} uploaded successfully.` });
+      }
+    } catch (err: any) {
+      toast({ title: "Upload failed", description: err.message, variant: "destructive" });
+    }
+    
+    setIsUploading(false);
+  };
+
+  const handleDelete = async () => {
+    if (!deleteDoc) return;
+
+    // Delete from storage
+    await supabase.storage.from('user-documents').remove([deleteDoc.storage_path]);
+    
+    // Delete from database
+    const { error } = await supabase.from('documents').delete().eq('id', deleteDoc.id);
+
+    if (!error) {
+      setDocuments(docs => docs.filter(d => d.id !== deleteDoc.id));
+      toast({ title: "Deleted", description: "Document has been deleted." });
+    }
+    setDeleteDoc(null);
+  };
+
+  const handleDownload = async (doc: Document) => {
+    const { data, error } = await supabase.storage
+      .from('user-documents')
+      .download(doc.storage_path);
+
+    if (data) {
+      const url = URL.createObjectURL(data);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = doc.filename;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast({ title: "Downloaded", description: `${doc.filename} downloaded.` });
     }
   };
 
-  const handleDownload = (doc: Document) => {
-    toast({
-      title: "Downloading",
-      description: `Downloading ${doc.filename}...`,
-    });
-    // In a real implementation, you would download from Supabase storage
+  const handlePreview = async (doc: Document) => {
+    const { data } = await supabase.storage
+      .from('user-documents')
+      .download(doc.storage_path);
+
+    if (data) {
+      const url = URL.createObjectURL(data);
+      setPreviewUrl(url);
+      setPreviewDoc(doc);
+    }
   };
 
   const formatFileSize = (bytes: number) => {
@@ -112,6 +169,7 @@ const Documents = () => {
     if (fileType.includes('pdf')) return '📄';
     if (fileType.includes('word') || fileType.includes('doc')) return '📝';
     if (fileType.includes('image')) return '🖼️';
+    if (fileType.includes('excel') || fileType.includes('spreadsheet')) return '📊';
     return '📁';
   };
 
@@ -121,7 +179,6 @@ const Documents = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Navigation */}
       <nav className="fixed top-0 left-0 right-0 z-50 glass-panel border-b border-border">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3 cursor-pointer" onClick={() => navigate('/chat')}>
@@ -141,76 +198,40 @@ const Documents = () => {
 
       <div className="pt-24 pb-12 px-4">
         <div className="container mx-auto max-w-5xl">
-          {/* Header */}
-          <motion.div
-            className="mb-8"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-          >
-            <h1 className="text-4xl font-bold mb-4">
-              My <span className="text-primary">Documents</span>
-            </h1>
-            <p className="text-muted-foreground">
-              Manage your uploaded documents and AI-generated files.
-            </p>
+          <motion.div className="mb-8" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
+            <h1 className="text-4xl font-bold mb-4">My <span className="text-primary">Documents</span></h1>
+            <p className="text-muted-foreground">Manage your uploaded documents and AI-generated files.</p>
           </motion.div>
 
-          {/* Search and Upload */}
-          <motion.div
-            className="flex flex-col sm:flex-row gap-4 mb-8"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.2 }}
-          >
+          <motion.div className="flex flex-col sm:flex-row gap-4 mb-8" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }}>
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search documents..."
-                className="pl-10"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
+              <Input placeholder="Search documents..." className="pl-10" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
             </div>
-            <Button
-              className="glow-button bg-gradient-to-r from-primary to-primary-glow"
-              onClick={() => toast({ title: "Upload", description: "Upload feature coming soon!" })}
-            >
-              <Upload className="mr-2 h-4 w-4" />
+            <Button className="glow-button bg-gradient-to-r from-primary to-primary-glow" onClick={() => fileInputRef.current?.click()} disabled={isUploading}>
+              {isUploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
               Upload Document
             </Button>
+            <input ref={fileInputRef} type="file" className="hidden" onChange={handleUpload} accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png,.xlsx,.xls,.zip" />
           </motion.div>
 
-          {/* Documents List */}
           {isLoading ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="w-8 h-8 animate-spin text-primary" />
             </div>
           ) : filteredDocs.length === 0 ? (
-            <motion.div
-              className="text-center py-16"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-            >
+            <motion.div className="text-center py-16" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
               <div className="p-6 rounded-full bg-primary/10 w-fit mx-auto mb-6">
                 <FolderOpen className="w-12 h-12 text-primary" />
               </div>
               <h3 className="text-xl font-bold mb-2">No Documents Yet</h3>
-              <p className="text-muted-foreground mb-6">
-                Upload documents or generate legal drafts to see them here.
-              </p>
-              <Button onClick={() => navigate('/chat')}>
-                Go to Chat
-              </Button>
+              <p className="text-muted-foreground mb-6">Upload documents or generate legal drafts to see them here.</p>
+              <Button onClick={() => navigate('/chat')}>Go to Chat</Button>
             </motion.div>
           ) : (
             <div className="space-y-4">
               {filteredDocs.map((doc, index) => (
-                <motion.div
-                  key={doc.id}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: index * 0.05 }}
-                >
+                <motion.div key={doc.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.05 }}>
                   <Card className="p-4 glass-panel hover:border-primary/50 transition-colors">
                     <div className="flex items-center gap-4">
                       <div className="text-3xl">{getFileIcon(doc.file_type)}</div>
@@ -224,41 +245,18 @@ const Documents = () => {
                         </div>
                       </div>
 
-                      <Badge variant="outline">{doc.file_type}</Badge>
+                      <Badge variant="outline">{doc.file_type.split('/')[1] || doc.file_type}</Badge>
 
                       <div className="flex items-center gap-2">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleDownload(doc)}
-                        >
+                        <Button variant="ghost" size="icon" onClick={() => handlePreview(doc)}>
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon" onClick={() => handleDownload(doc)}>
                           <Download className="h-4 w-4" />
                         </Button>
-
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive">
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>Delete Document?</AlertDialogTitle>
-                              <AlertDialogDescription>
-                                Are you sure you want to delete "{doc.filename}"? This action cannot be undone.
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>Cancel</AlertDialogCancel>
-                              <AlertDialogAction
-                                onClick={() => handleDelete(doc.id)}
-                                className="bg-destructive text-destructive-foreground"
-                              >
-                                Delete Forever
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
+                        <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" onClick={() => setDeleteDoc(doc)}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
                       </div>
                     </div>
                   </Card>
@@ -269,7 +267,6 @@ const Documents = () => {
         </div>
       </div>
 
-      {/* Footer */}
       <footer className="py-8 px-4 border-t border-border">
         <div className="container mx-auto text-center">
           <p className="text-muted-foreground">
@@ -277,6 +274,51 @@ const Documents = () => {
           </p>
         </div>
       </footer>
+
+      {/* Preview Dialog */}
+      <Dialog open={!!previewDoc} onOpenChange={() => { setPreviewDoc(null); if (previewUrl) URL.revokeObjectURL(previewUrl); setPreviewUrl(null); }}>
+        <DialogContent className="max-w-4xl h-[80vh]">
+          <DialogHeader>
+            <DialogTitle>{previewDoc?.filename}</DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 overflow-auto">
+            {previewUrl && previewDoc && (
+              previewDoc.file_type.includes('image') ? (
+                <img src={previewUrl} alt={previewDoc.filename} className="max-w-full mx-auto" />
+              ) : previewDoc.file_type.includes('pdf') ? (
+                <iframe src={previewUrl} className="w-full h-full min-h-[60vh]" />
+              ) : (
+                <div className="text-center py-12">
+                  <FileText className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+                  <p className="text-muted-foreground">Preview not available for this file type.</p>
+                  <Button className="mt-4" onClick={() => previewDoc && handleDownload(previewDoc)}>
+                    <Download className="mr-2 h-4 w-4" />
+                    Download to View
+                  </Button>
+                </div>
+              )
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Dialog */}
+      <AlertDialog open={!!deleteDoc} onOpenChange={() => setDeleteDoc(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Document?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete "{deleteDoc?.filename}"? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground">
+              Delete Forever
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

@@ -1,13 +1,16 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Scale, MessageSquare, Plus, LogOut, Settings, FileText, Gavel, BookMarked, Menu, X, Sun, Moon, Pencil, Trash2, Check } from 'lucide-react';
+import { 
+  Scale, MessageSquare, Plus, LogOut, Settings, FileText, Gavel, BookMarked, 
+  Menu, X, Sun, Moon, Pencil, Trash2, Check, Clock, User
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Input } from '@/components/ui/input';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useTheme } from 'next-themes';
 import {
   AlertDialog,
@@ -40,6 +43,8 @@ const ChatSidebar = ({ userId, onSelectConversation, selectedConversationId }: C
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [isOpen, setIsOpen] = useState(true);
   const [userEmail, setUserEmail] = useState('');
+  const [userName, setUserName] = useState('');
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
@@ -55,11 +60,15 @@ const ChatSidebar = ({ userId, onSelectConversation, selectedConversationId }: C
   const fetchUserInfo = async () => {
     const { data, error } = await supabase
       .from('profiles')
-      .select('email')
+      .select('email, full_name, avatar_url')
       .eq('id', userId)
       .single();
 
-    if (data) setUserEmail(data.email || '');
+    if (data) {
+      setUserEmail(data.email || '');
+      setUserName(data.full_name || '');
+      setAvatarUrl(data.avatar_url || null);
+    }
   };
 
   const checkAdminStatus = async () => {
@@ -223,12 +232,22 @@ const ChatSidebar = ({ userId, onSelectConversation, selectedConversationId }: C
               Admin Panel
             </Button>
           )}
+          
+          {/* Recent Conversations Button - Large and Visible */}
+          <Button
+            variant="outline"
+            className="w-full justify-start mt-4 h-12 border-primary/50 hover:border-primary hover:bg-primary/10"
+            onClick={() => navigate('/recent-conversations')}
+          >
+            <Clock className="mr-2 h-5 w-5 text-primary" />
+            <span className="font-semibold">Recent Conversations</span>
+          </Button>
         </div>
 
         {/* Conversations list */}
         <ScrollArea className="flex-1 px-4">
           <div className="space-y-2 pb-4">
-            <h3 className="text-sm font-semibold text-muted-foreground mb-2">Recent Conversations</h3>
+            <h3 className="text-sm font-semibold text-muted-foreground mb-2">History</h3>
             {conversations.map((conv) => (
               <div
                 key={conv.id}
@@ -300,14 +319,18 @@ const ChatSidebar = ({ userId, onSelectConversation, selectedConversationId }: C
 
         {/* User section */}
         <div className="p-4 border-t border-border space-y-2">
-          <div className="flex items-center gap-3 mb-2">
+          <div 
+            className="flex items-center gap-3 mb-2 cursor-pointer hover:bg-secondary/50 rounded-lg p-2 transition-colors"
+            onClick={() => navigate('/settings')}
+          >
             <Avatar>
+              <AvatarImage src={avatarUrl || ''} />
               <AvatarFallback className="bg-primary text-primary-foreground">
-                {userEmail.charAt(0).toUpperCase()}
+                {userName?.charAt(0) || userEmail?.charAt(0)?.toUpperCase() || 'U'}
               </AvatarFallback>
             </Avatar>
             <div className="flex-1 overflow-hidden">
-              <p className="text-sm font-medium truncate">{userEmail}</p>
+              <p className="text-sm font-medium truncate">{userName || userEmail}</p>
               {isAdmin && (
                 <p className="text-xs text-legal-gold">Admin</p>
               )}
@@ -322,6 +345,14 @@ const ChatSidebar = ({ userId, onSelectConversation, selectedConversationId }: C
               onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
             >
               {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="flex-1"
+              onClick={() => navigate('/settings')}
+            >
+              <User className="h-4 w-4" />
             </Button>
             <Button
               variant="ghost"
