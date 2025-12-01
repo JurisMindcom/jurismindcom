@@ -127,11 +127,20 @@ All colors MUST be HSL.
     @apply border-border;
   }
 
-  body {
+  html, body {
     @apply bg-background text-foreground font-sans antialiased;
     background-image: 
       radial-gradient(circle at 20% 50%, hsl(var(--primary) / 0.05) 0%, transparent 50%),
       radial-gradient(circle at 80% 80%, hsl(var(--primary) / 0.05) 0%, transparent 50%);
+    scroll-behavior: smooth;
+    -webkit-overflow-scrolling: touch;
+    overflow-x: hidden;
+  }
+  
+  /* Smooth scrolling for all scrollable containers */
+  .overflow-y-auto, .overflow-auto, [data-radix-scroll-area-viewport] {
+    scroll-behavior: smooth;
+    -webkit-overflow-scrolling: touch;
   }
   
   .glass-panel {

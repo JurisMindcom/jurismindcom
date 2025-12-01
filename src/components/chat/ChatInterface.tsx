@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Send, Mic, MicOff, Languages, Bot, Loader2, User, UserCircle,
-  Copy, Check, Zap, BookOpen, Upload, X
+  Copy, Check, Zap, BookOpen, Upload, X, FileText
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -44,8 +44,10 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [filePreview, setFilePreview] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(conversationId);
 
   useEffect(() => {
@@ -66,7 +68,7 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
     const loadPreferences = async () => {
       const { data } = await supabase
         .from('profiles')
-        .select('response_mode')
+        .select('response_mode, personality_mode')
         .eq('id', userId)
         .single();
       
@@ -131,8 +133,19 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
       toast({ title: "File too large", description: "Maximum file size is 20MB.", variant: "destructive" });
       return;
     }
+    
     setUploadedFile(file);
-    toast({ title: "File attached", description: `${file.name} ready to upload.` });
+    
+    // Create preview for images
+    if (file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = (e) => setFilePreview(e.target?.result as string);
+      reader.readAsDataURL(file);
+    } else {
+      setFilePreview(null);
+    }
+    
+    toast({ title: "File attached", description: `${file.name} ready for analysis.` });
   };
 
   const uploadFileToStorage = async (file: File) => {
@@ -156,6 +169,26 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
     return filePath;
   };
 
+  const extractFileContent = async (file: File): Promise<string> => {
+    // For text files, extract content
+    if (file.type === 'text/plain' || file.name.endsWith('.txt')) {
+      return await file.text();
+    }
+    
+    // For PDFs and other documents, provide file info
+    const fileInfo = `File: ${file.name}\nType: ${file.type}\nSize: ${(file.size / 1024).toFixed(2)} KB`;
+    
+    if (file.type === 'application/pdf') {
+      return `${fileInfo}\n\n[PDF document uploaded for analysis. Please analyze this legal document and provide insights.]`;
+    }
+    
+    if (file.type.startsWith('image/')) {
+      return `${fileInfo}\n\n[Image uploaded. Please describe what you can help with regarding this image.]`;
+    }
+    
+    return `${fileInfo}\n\n[Document uploaded for analysis.]`;
+  };
+
   const handleSend = async () => {
     if (!input.trim() && !uploadedFile) return;
     if (isLoading) return;
@@ -165,18 +198,26 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
     setIsLoading(true);
 
     try {
+      let fileContext = '';
+      
       if (uploadedFile) {
         setIsUploading(true);
         try {
           await uploadFileToStorage(uploadedFile);
-          userMessage = `[Uploaded file: ${uploadedFile.name}]\n\n${userMessage || 'Please analyze this file.'}`;
-          toast({ title: "File uploaded", description: "File saved to your documents." });
-        } catch {
+          fileContext = await extractFileContent(uploadedFile);
+          toast({ title: "File uploaded", description: "File saved and ready for analysis." });
+        } catch (err) {
           toast({ title: "Upload failed", description: "Could not upload file.", variant: "destructive" });
         }
         setUploadedFile(null);
+        setFilePreview(null);
         setIsUploading(false);
       }
+
+      // Construct message with file context
+      const fullMessage = fileContext 
+        ? `${fileContext}\n\nUser Query: ${userMessage || 'Please analyze this file.'}`
+        : userMessage;
 
       let convId = currentConversationId;
       if (!convId) {
@@ -184,13 +225,23 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
         if (!convId) throw new Error('Failed to create conversation');
       }
 
-      const userMsg = await saveMessage(convId, 'user', userMessage);
+      const userMsg = await saveMessage(convId, 'user', userMessage || 'Analyze attached file');
       if (userMsg) {
         setMessages(prev => [...prev, { id: userMsg.id, role: 'user', content: userMsg.content, created_at: userMsg.created_at }]);
       }
 
+      // Include response mode instruction
+      const responseModeInstruction = responseMode === 'short' 
+        ? 'RESPONSE MODE: SHORT - Give a brief, direct answer in 1-7 lines. No lengthy explanations.'
+        : 'RESPONSE MODE: DEEP - Provide a detailed, comprehensive answer with analysis, examples, and relevant laws.';
+
       const { data, error } = await supabase.functions.invoke('legal-chat', {
-        body: { messages: [...messages, { role: 'user', content: userMessage }], personality, language, responseMode },
+        body: { 
+          messages: [...messages, { role: 'user', content: `${responseModeInstruction}\n\n${fullMessage}` }], 
+          personality, 
+          language,
+          responseMode 
+        },
       });
 
       if (error) throw error;
@@ -213,21 +264,27 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
     toast({ title: "Copied", description: "Text copied to clipboard." });
   };
 
-  const toggleResponseMode = () => {
+  const toggleResponseMode = async () => {
     const newMode = responseMode === 'short' ? 'deep' : 'short';
     setResponseMode(newMode);
-    supabase.from('profiles').update({ response_mode: newMode }).eq('id', userId);
+    await supabase.from('profiles').update({ response_mode: newMode }).eq('id', userId);
     toast({
       title: newMode === 'short' ? "Short Answer Mode" : "Deep Answer Mode",
-      description: newMode === 'short' ? "Responses will be brief." : "Responses will be detailed.",
+      description: newMode === 'short' ? "Responses will be brief (1-7 lines)." : "Responses will be detailed and comprehensive.",
     });
+  };
+
+  const clearFile = () => {
+    setUploadedFile(null);
+    setFilePreview(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const personalityIcons = { lawyer: '⚖️', judge: '👨‍⚖️', researcher: '🔍', student: '📚' };
 
   return (
-    <div className="flex-1 flex flex-col h-full">
-      <ScrollArea className="flex-1 p-4">
+    <div className="flex-1 flex flex-col h-full overflow-hidden">
+      <ScrollArea className="flex-1 p-4" ref={scrollAreaRef}>
         <AnimatePresence>
           {messages.length === 0 ? (
             <motion.div className="h-full flex flex-col items-center justify-center text-center space-y-6 px-4 pt-12" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
@@ -256,7 +313,7 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
               {messages.map((message, index) => (
                 <motion.div key={message.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.05 }} className={`flex gap-3 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                   {message.role === 'assistant' && (
-                    <div className="p-2 rounded-lg bg-primary/20 h-fit"><Bot className="w-5 h-5 text-primary" /></div>
+                    <div className="p-2 rounded-lg bg-primary/20 h-fit shrink-0"><Bot className="w-5 h-5 text-primary" /></div>
                   )}
 
                   <Card className={`max-w-[80%] p-4 relative group ${message.role === 'user' ? 'bg-gradient-to-br from-primary to-primary-glow text-primary-foreground' : 'glass-panel'}`}>
@@ -276,7 +333,7 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
                   </Card>
 
                   {message.role === 'user' && (
-                    <div className="p-2 rounded-lg bg-primary/20 h-fit"><User className="w-5 h-5 text-primary" /></div>
+                    <div className="p-2 rounded-lg bg-primary/20 h-fit shrink-0"><User className="w-5 h-5 text-primary" /></div>
                   )}
                 </motion.div>
               ))}
@@ -297,14 +354,27 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
       </ScrollArea>
 
       <div className="p-4 border-t border-border glass-panel">
+        {/* File Preview */}
         {uploadedFile && (
-          <div className="flex items-center gap-2 mb-3 p-2 bg-secondary/50 rounded-lg">
-            <Upload className="h-4 w-4 text-primary" />
-            <span className="text-sm flex-1 truncate">{uploadedFile.name}</span>
-            <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => setUploadedFile(null)}><X className="h-3 w-3" /></Button>
+          <div className="flex items-center gap-3 mb-3 p-3 bg-secondary/50 rounded-lg">
+            {filePreview ? (
+              <img src={filePreview} alt="Preview" className="w-12 h-12 object-cover rounded" />
+            ) : (
+              <div className="w-12 h-12 bg-primary/20 rounded flex items-center justify-center">
+                <FileText className="h-6 w-6 text-primary" />
+              </div>
+            )}
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium truncate">{uploadedFile.name}</p>
+              <p className="text-xs text-muted-foreground">{(uploadedFile.size / 1024).toFixed(1)} KB</p>
+            </div>
+            <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0" onClick={clearFile}>
+              <X className="h-4 w-4" />
+            </Button>
           </div>
         )}
 
+        {/* Selectors */}
         <div className="flex items-center gap-2 mb-3 flex-wrap">
           <Select value={personality} onValueChange={(v: any) => setPersonality(v)}>
             <SelectTrigger className="w-auto min-w-[130px] h-8 text-xs">
@@ -330,6 +400,7 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
           </Select>
         </div>
 
+        {/* Input Area */}
         <div className="flex gap-2">
           <div className="flex flex-col gap-2">
             <TooltipProvider>
@@ -339,25 +410,37 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
                     {isUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>Upload File</TooltipContent>
+                <TooltipContent>Upload File (PDF, Image, Doc)</TooltipContent>
               </Tooltip>
             </TooltipProvider>
             
-            <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileUpload} accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png,.xlsx,.xls,.zip" />
+            <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileUpload} accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png,.xlsx,.xls,.zip,.webp" />
 
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button variant="outline" size="icon" onClick={toggleResponseMode} className={responseMode === 'deep' ? 'bg-primary/20 border-primary' : 'opacity-60'}>
+                  <Button 
+                    variant="outline" 
+                    size="icon" 
+                    onClick={toggleResponseMode} 
+                    className={`transition-all ${responseMode === 'deep' ? 'bg-primary/20 border-primary shadow-lg shadow-primary/20' : 'opacity-60'}`}
+                  >
                     {responseMode === 'short' ? <Zap className="h-4 w-4" /> : <BookOpen className="h-4 w-4" />}
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>{responseMode === 'short' ? 'Short Answers' : 'Detailed Answers'}</TooltipContent>
+                <TooltipContent>{responseMode === 'short' ? 'Short Answers (1-7 lines)' : 'Detailed Answers'}</TooltipContent>
               </Tooltip>
             </TooltipProvider>
           </div>
 
-          <Textarea placeholder="Type your legal question here..." value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }}} className="min-h-[60px] max-h-[120px]" disabled={isLoading} />
+          <Textarea 
+            placeholder="Type your legal question here..." 
+            value={input} 
+            onChange={(e) => setInput(e.target.value)} 
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }}} 
+            className="min-h-[60px] max-h-[120px] resize-none" 
+            disabled={isLoading} 
+          />
 
           <div className="flex flex-col gap-2">
             <Button variant="outline" size="icon" onClick={() => toast({ title: "Voice input", description: "Coming soon!" })} className={isListening ? 'bg-primary text-primary-foreground' : ''}>
