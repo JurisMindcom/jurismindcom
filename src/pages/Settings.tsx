@@ -147,36 +147,72 @@ const Settings = () => {
     const file = e.target.files?.[0];
     if (!file || !userId) return;
 
-    const fileExt = file.name.split('.').pop();
-    const filePath = `${userId}/avatar.${fileExt}`;
-
-    const { error: uploadError } = await supabase.storage
-      .from('user-documents')
-      .upload(filePath, file, { upsert: true });
-
-    if (uploadError) {
+    // Validate file type
+    const validTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/jpg'];
+    if (!validTypes.includes(file.type)) {
       toast({
-        title: "Error",
-        description: "Failed to upload avatar.",
+        title: "Invalid file type",
+        description: "Please upload a JPG, PNG, or WEBP image.",
         variant: "destructive",
       });
       return;
     }
 
-    const { data: { publicUrl } } = supabase.storage
-      .from('user-documents')
-      .getPublicUrl(filePath);
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      toast({
+        title: "File too large",
+        description: "Maximum file size is 5MB.",
+        variant: "destructive",
+      });
+      return;
+    }
 
-    await supabase
-      .from('profiles')
-      .update({ avatar_url: publicUrl })
-      .eq('id', userId);
+    setIsSaving(true);
+    
+    try {
+      const fileExt = file.name.split('.').pop()?.toLowerCase() || 'jpg';
+      const filePath = `${userId}/avatar-${Date.now()}.${fileExt}`;
 
-    setAvatarUrl(publicUrl);
-    toast({
-      title: "Uploaded",
-      description: "Avatar updated successfully.",
-    });
+      // Delete old avatar if exists
+      if (avatarUrl) {
+        const oldPath = avatarUrl.split('/').slice(-2).join('/');
+        await supabase.storage.from('user-documents').remove([oldPath]).catch(() => {});
+      }
+
+      const { error: uploadError } = await supabase.storage
+        .from('user-documents')
+        .upload(filePath, file, { upsert: true });
+
+      if (uploadError) throw uploadError;
+
+      // Get signed URL for private bucket
+      const { data: signedData } = await supabase.storage
+        .from('user-documents')
+        .createSignedUrl(filePath, 60 * 60 * 24 * 365); // 1 year
+
+      const newAvatarUrl = signedData?.signedUrl || '';
+
+      await supabase
+        .from('profiles')
+        .update({ avatar_url: newAvatarUrl })
+        .eq('id', userId);
+
+      setAvatarUrl(newAvatarUrl);
+      toast({
+        title: "Uploaded",
+        description: "Avatar updated successfully.",
+      });
+    } catch (err: any) {
+      console.error('Avatar upload error:', err);
+      toast({
+        title: "Error",
+        description: err.message || "Failed to upload avatar.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleChangePassword = async () => {

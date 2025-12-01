@@ -3,8 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { 
   Scale, ArrowLeft, Users, MessageSquare, FileText, Settings,
-  BarChart3, Shield, AlertTriangle, Activity, Search, Download,
-  Trash2, Eye, UserCheck, UserX, Calendar, TrendingUp
+  Shield, Activity, Search, Download, Eye, Calendar, TrendingUp,
+  Loader2, Brain, ChevronLeft
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -12,14 +12,18 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 
-interface User {
+interface UserProfile {
   id: string;
-  email: string;
+  email: string | null;
   full_name: string | null;
-  created_at: string;
+  avatar_url: string | null;
+  profession: string | null;
+  created_at: string | null;
 }
 
 interface Conversation {
@@ -29,10 +33,23 @@ interface Conversation {
   created_at: string;
 }
 
-interface ActivityLog {
+interface Message {
   id: string;
-  user_id: string;
-  action: string;
+  role: string;
+  content: string;
+  created_at: string;
+}
+
+interface Document {
+  id: string;
+  filename: string;
+  file_type: string;
+  created_at: string;
+}
+
+interface Memory {
+  id: string;
+  content: string;
   created_at: string;
 }
 
@@ -41,9 +58,8 @@ const Admin = () => {
   const { toast } = useToast();
   const [isAdmin, setIsAdmin] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [users, setUsers] = useState<User[]>([]);
+  const [users, setUsers] = useState<UserProfile[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
   const [stats, setStats] = useState({
     totalUsers: 0,
     totalConversations: 0,
@@ -51,6 +67,15 @@ const Admin = () => {
     totalMessages: 0,
   });
   const [searchQuery, setSearchQuery] = useState('');
+  
+  // User Profile Modal State
+  const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null);
+  const [userConversations, setUserConversations] = useState<Conversation[]>([]);
+  const [userDocuments, setUserDocuments] = useState<Document[]>([]);
+  const [userMemories, setUserMemories] = useState<Memory[]>([]);
+  const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
+  const [conversationMessages, setConversationMessages] = useState<Message[]>([]);
+  const [loadingUserData, setLoadingUserData] = useState(false);
 
   useEffect(() => {
     checkAdminAccess();
@@ -87,14 +112,12 @@ const Admin = () => {
   };
 
   const fetchAllData = async () => {
-    // Fetch users
     const { data: usersData } = await supabase
       .from('profiles')
       .select('*')
       .order('created_at', { ascending: false });
     if (usersData) setUsers(usersData);
 
-    // Fetch conversations
     const { data: convsData } = await supabase
       .from('conversations')
       .select('*')
@@ -102,15 +125,6 @@ const Admin = () => {
       .limit(100);
     if (convsData) setConversations(convsData);
 
-    // Fetch activity logs
-    const { data: logsData } = await supabase
-      .from('activity_logs')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(100);
-    if (logsData) setActivityLogs(logsData);
-
-    // Calculate stats
     const { count: usersCount } = await supabase.from('profiles').select('*', { count: 'exact', head: true });
     const { count: convsCount } = await supabase.from('conversations').select('*', { count: 'exact', head: true });
     const { count: docsCount } = await supabase.from('documents').select('*', { count: 'exact', head: true });
@@ -124,11 +138,54 @@ const Admin = () => {
     });
   };
 
+  const fetchUserDetails = async (user: UserProfile) => {
+    setSelectedUser(user);
+    setLoadingUserData(true);
+    setSelectedConversation(null);
+    setConversationMessages([]);
+
+    // Fetch user conversations
+    const { data: convs } = await supabase
+      .from('conversations')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false });
+    setUserConversations(convs || []);
+
+    // Fetch user documents
+    const { data: docs } = await supabase
+      .from('documents')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false });
+    setUserDocuments(docs || []);
+
+    // Fetch user memories
+    const { data: memories } = await supabase
+      .from('user_memories')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false });
+    setUserMemories(memories || []);
+
+    setLoadingUserData(false);
+  };
+
+  const fetchConversationMessages = async (conv: Conversation) => {
+    setSelectedConversation(conv);
+    const { data } = await supabase
+      .from('messages')
+      .select('*')
+      .eq('conversation_id', conv.id)
+      .order('created_at', { ascending: true });
+    setConversationMessages(data || []);
+  };
+
   const exportToCSV = (data: any[], filename: string) => {
     if (data.length === 0) return;
     
     const headers = Object.keys(data[0]).join(',');
-    const rows = data.map(obj => Object.values(obj).join(','));
+    const rows = data.map(obj => Object.values(obj).map(v => `"${v}"`).join(','));
     const csv = [headers, ...rows].join('\n');
     
     const blob = new Blob([csv], { type: 'text/csv' });
@@ -139,10 +196,7 @@ const Admin = () => {
     a.click();
     URL.revokeObjectURL(url);
 
-    toast({
-      title: "Exported",
-      description: `${filename}.csv has been downloaded.`,
-    });
+    toast({ title: "Exported", description: `${filename}.csv has been downloaded.` });
   };
 
   const statCards = [
@@ -156,19 +210,17 @@ const Admin = () => {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+          <Loader2 className="h-12 w-12 animate-spin text-primary mx-auto mb-4" />
           <p className="text-muted-foreground">Verifying admin access...</p>
         </div>
       </div>
     );
   }
 
-  if (!isAdmin) {
-    return null;
-  }
+  if (!isAdmin) return null;
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background overflow-y-auto">
       {/* Navigation */}
       <nav className="fixed top-0 left-0 right-0 z-50 glass-panel border-b border-border">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
@@ -213,7 +265,7 @@ const Admin = () => {
 
           {/* Tabs */}
           <Tabs defaultValue="users" className="space-y-4">
-            <TabsList className="grid grid-cols-4 w-full max-w-2xl">
+            <TabsList className="grid grid-cols-3 w-full max-w-lg">
               <TabsTrigger value="users">
                 <Users className="mr-2 h-4 w-4" />
                 Users
@@ -221,10 +273,6 @@ const Admin = () => {
               <TabsTrigger value="conversations">
                 <MessageSquare className="mr-2 h-4 w-4" />
                 Conversations
-              </TabsTrigger>
-              <TabsTrigger value="logs">
-                <Activity className="mr-2 h-4 w-4" />
-                Activity Logs
               </TabsTrigger>
               <TabsTrigger value="settings">
                 <Settings className="mr-2 h-4 w-4" />
@@ -254,32 +302,38 @@ const Admin = () => {
                   </div>
                 </div>
 
-                <ScrollArea className="h-[400px]">
+                <ScrollArea className="h-[500px]">
                   <div className="space-y-2">
                     {users
-                      .filter(u => u.email?.toLowerCase().includes(searchQuery.toLowerCase()))
+                      .filter(u => 
+                        u.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                        u.full_name?.toLowerCase().includes(searchQuery.toLowerCase())
+                      )
                       .map((user) => (
                         <div
                           key={user.id}
                           className="flex items-center justify-between p-4 rounded-lg bg-secondary/50 hover:bg-secondary transition-colors"
                         >
                           <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center">
-                              <span className="text-primary font-bold">
-                                {user.email?.charAt(0).toUpperCase()}
-                              </span>
-                            </div>
+                            <Avatar className="h-10 w-10">
+                              <AvatarImage src={user.avatar_url || ''} />
+                              <AvatarFallback className="bg-primary text-primary-foreground">
+                                {user.full_name?.charAt(0) || user.email?.charAt(0) || 'U'}
+                              </AvatarFallback>
+                            </Avatar>
                             <div>
-                              <p className="font-medium">{user.email}</p>
-                              <p className="text-sm text-muted-foreground">
-                                Joined: {new Date(user.created_at).toLocaleDateString()}
-                              </p>
+                              <p className="font-medium">{user.full_name || 'No name'}</p>
+                              <p className="text-sm text-muted-foreground">{user.email}</p>
+                              {user.profession && (
+                                <p className="text-xs text-muted-foreground">{user.profession}</p>
+                              )}
                             </div>
                           </div>
                           <div className="flex items-center gap-2">
                             <Badge variant="secondary">User</Badge>
-                            <Button variant="ghost" size="icon">
-                              <Eye className="h-4 w-4" />
+                            <Button variant="outline" size="sm" onClick={() => fetchUserDetails(user)}>
+                              <Eye className="mr-2 h-4 w-4" />
+                              View Profile
                             </Button>
                           </div>
                         </div>
@@ -293,19 +347,26 @@ const Admin = () => {
             <TabsContent value="conversations">
               <Card className="p-6 glass-panel">
                 <div className="flex items-center justify-between mb-6">
-                  <h2 className="text-xl font-bold">Conversation Logs</h2>
+                  <h2 className="text-xl font-bold">All Conversations</h2>
                   <Button variant="outline" onClick={() => exportToCSV(conversations, 'conversations')}>
                     <Download className="mr-2 h-4 w-4" />
                     Export
                   </Button>
                 </div>
 
-                <ScrollArea className="h-[400px]">
+                <ScrollArea className="h-[500px]">
                   <div className="space-y-2">
                     {conversations.map((conv) => (
                       <div
                         key={conv.id}
-                        className="flex items-center justify-between p-4 rounded-lg bg-secondary/50 hover:bg-secondary transition-colors"
+                        className="flex items-center justify-between p-4 rounded-lg bg-secondary/50 hover:bg-secondary transition-colors cursor-pointer"
+                        onClick={() => {
+                          const user = users.find(u => u.id === conv.user_id);
+                          if (user) {
+                            fetchUserDetails(user);
+                            setTimeout(() => fetchConversationMessages(conv), 500);
+                          }
+                        }}
                       >
                         <div className="flex items-center gap-3">
                           <MessageSquare className="w-5 h-5 text-primary" />
@@ -316,53 +377,10 @@ const Admin = () => {
                             </p>
                           </div>
                         </div>
-                        <Button variant="ghost" size="icon">
-                          <Eye className="h-4 w-4" />
-                        </Button>
+                        <Eye className="h-4 w-4 text-muted-foreground" />
                       </div>
                     ))}
                   </div>
-                </ScrollArea>
-              </Card>
-            </TabsContent>
-
-            {/* Activity Logs Tab */}
-            <TabsContent value="logs">
-              <Card className="p-6 glass-panel">
-                <div className="flex items-center justify-between mb-6">
-                  <h2 className="text-xl font-bold">Activity Logs</h2>
-                  <Button variant="outline" onClick={() => exportToCSV(activityLogs, 'activity_logs')}>
-                    <Download className="mr-2 h-4 w-4" />
-                    Export
-                  </Button>
-                </div>
-
-                <ScrollArea className="h-[400px]">
-                  {activityLogs.length === 0 ? (
-                    <div className="text-center py-12">
-                      <Activity className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-                      <p className="text-muted-foreground">No activity logs yet.</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      {activityLogs.map((log) => (
-                        <div
-                          key={log.id}
-                          className="flex items-center justify-between p-4 rounded-lg bg-secondary/50"
-                        >
-                          <div className="flex items-center gap-3">
-                            <Activity className="w-5 h-5 text-primary" />
-                            <div>
-                              <p className="font-medium">{log.action}</p>
-                              <p className="text-sm text-muted-foreground">
-                                {new Date(log.created_at).toLocaleString()}
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
                 </ScrollArea>
               </Card>
             </TabsContent>
@@ -376,25 +394,25 @@ const Admin = () => {
                   <div className="p-4 rounded-lg bg-secondary/50">
                     <h3 className="font-semibold mb-2">AI Configuration</h3>
                     <p className="text-sm text-muted-foreground mb-4">
-                      Configure AI model settings and behavior.
+                      JurisMind AI is powered by Lovable AI Gateway with Gemini 2.5 Flash model.
                     </p>
-                    <Button variant="outline">Configure AI</Button>
+                    <Badge>Active</Badge>
                   </div>
 
                   <div className="p-4 rounded-lg bg-secondary/50">
-                    <h3 className="font-semibold mb-2">Content Management</h3>
+                    <h3 className="font-semibold mb-2">Database Status</h3>
                     <p className="text-sm text-muted-foreground mb-4">
-                      Manage legal templates and case law database.
+                      Connected to Supabase backend via Lovable Cloud.
                     </p>
-                    <Button variant="outline">Manage Content</Button>
+                    <Badge variant="secondary">Connected</Badge>
                   </div>
 
                   <div className="p-4 rounded-lg bg-secondary/50">
-                    <h3 className="font-semibold mb-2">Security Settings</h3>
+                    <h3 className="font-semibold mb-2">Storage</h3>
                     <p className="text-sm text-muted-foreground mb-4">
-                      Configure security policies and access control.
+                      User documents stored securely in Supabase Storage.
                     </p>
-                    <Button variant="outline">Security Settings</Button>
+                    <Badge variant="outline">Operational</Badge>
                   </div>
                 </div>
               </Card>
@@ -402,6 +420,118 @@ const Admin = () => {
           </Tabs>
         </div>
       </div>
+
+      {/* User Profile Dialog */}
+      <Dialog open={!!selectedUser} onOpenChange={() => setSelectedUser(null)}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-3">
+              {selectedConversation ? (
+                <Button variant="ghost" size="sm" onClick={() => setSelectedConversation(null)}>
+                  <ChevronLeft className="h-4 w-4 mr-1" />
+                  Back
+                </Button>
+              ) : null}
+              <Avatar className="h-8 w-8">
+                <AvatarImage src={selectedUser?.avatar_url || ''} />
+                <AvatarFallback>{selectedUser?.full_name?.charAt(0) || 'U'}</AvatarFallback>
+              </Avatar>
+              {selectedConversation ? selectedConversation.title : selectedUser?.full_name || selectedUser?.email}
+            </DialogTitle>
+          </DialogHeader>
+
+          {loadingUserData ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+          ) : selectedConversation ? (
+            // Show conversation messages
+            <ScrollArea className="flex-1 pr-4">
+              <div className="space-y-4">
+                {conversationMessages.map((msg) => (
+                  <div key={msg.id} className={`p-3 rounded-lg ${msg.role === 'user' ? 'bg-primary/20 ml-8' : 'bg-secondary mr-8'}`}>
+                    <p className="text-xs text-muted-foreground mb-1">{msg.role === 'user' ? 'User' : 'JurisMind'}</p>
+                    <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                    <p className="text-xs text-muted-foreground mt-1">{new Date(msg.created_at).toLocaleString()}</p>
+                  </div>
+                ))}
+              </div>
+            </ScrollArea>
+          ) : (
+            // Show user profile tabs
+            <Tabs defaultValue="conversations" className="flex-1 overflow-hidden flex flex-col">
+              <TabsList className="grid grid-cols-3 w-full">
+                <TabsTrigger value="conversations">Conversations ({userConversations.length})</TabsTrigger>
+                <TabsTrigger value="documents">Documents ({userDocuments.length})</TabsTrigger>
+                <TabsTrigger value="memory">Memory ({userMemories.length})</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="conversations" className="flex-1 overflow-hidden">
+                <ScrollArea className="h-[400px]">
+                  <div className="space-y-2 pr-4">
+                    {userConversations.length === 0 ? (
+                      <p className="text-center text-muted-foreground py-8">No conversations</p>
+                    ) : (
+                      userConversations.map((conv) => (
+                        <div
+                          key={conv.id}
+                          className="p-3 rounded-lg bg-secondary/50 hover:bg-secondary cursor-pointer transition-colors"
+                          onClick={() => fetchConversationMessages(conv)}
+                        >
+                          <p className="font-medium">{conv.title}</p>
+                          <p className="text-xs text-muted-foreground">{new Date(conv.created_at).toLocaleString()}</p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </ScrollArea>
+              </TabsContent>
+
+              <TabsContent value="documents" className="flex-1 overflow-hidden">
+                <ScrollArea className="h-[400px]">
+                  <div className="space-y-2 pr-4">
+                    {userDocuments.length === 0 ? (
+                      <p className="text-center text-muted-foreground py-8">No documents</p>
+                    ) : (
+                      userDocuments.map((doc) => (
+                        <div key={doc.id} className="p-3 rounded-lg bg-secondary/50 flex items-center gap-3">
+                          <FileText className="h-5 w-5 text-primary" />
+                          <div className="flex-1">
+                            <p className="font-medium truncate">{doc.filename}</p>
+                            <p className="text-xs text-muted-foreground">{doc.file_type} • {new Date(doc.created_at).toLocaleDateString()}</p>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </ScrollArea>
+              </TabsContent>
+
+              <TabsContent value="memory" className="flex-1 overflow-hidden">
+                <ScrollArea className="h-[400px]">
+                  <div className="space-y-2 pr-4">
+                    {userMemories.length === 0 ? (
+                      <p className="text-center text-muted-foreground py-8">No saved memories</p>
+                    ) : (
+                      userMemories.map((mem) => (
+                        <div key={mem.id} className="p-3 rounded-lg bg-secondary/50">
+                          <div className="flex items-start gap-2">
+                            <Brain className="h-4 w-4 text-primary mt-1 shrink-0" />
+                            <div>
+                              <p className="text-sm">{mem.content}</p>
+                              <p className="text-xs text-muted-foreground mt-1">{new Date(mem.created_at).toLocaleString()}</p>
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </ScrollArea>
+              </TabsContent>
+            </Tabs>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Footer */}
       <footer className="py-8 px-4 border-t border-border">

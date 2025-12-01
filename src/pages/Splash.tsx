@@ -1,17 +1,35 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Scale } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
 
 const Splash = () => {
   const navigate = useNavigate();
+  const [checkingAuth, setCheckingAuth] = useState(true);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      navigate('/home');
-    }, 3000);
+    const checkSession = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        // Short delay for splash animation
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        
+        if (session?.user) {
+          // User is logged in - go directly to chat
+          navigate('/chat', { replace: true });
+        } else {
+          // No session - go to home page
+          navigate('/home', { replace: true });
+        }
+      } catch (error) {
+        console.error('Auth check error:', error);
+        navigate('/home', { replace: true });
+      }
+    };
 
-    return () => clearTimeout(timer);
+    checkSession();
   }, [navigate]);
 
   return (
@@ -87,7 +105,7 @@ const Splash = () => {
           className="flex justify-center gap-2 mt-12"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          transition={{ delay: 1.5 }}
+          transition={{ delay: 0.5 }}
         >
           {[0, 1, 2].map((i) => (
             <motion.div
@@ -112,7 +130,7 @@ const Splash = () => {
         className="absolute bottom-8 text-xs text-muted-foreground text-center px-4 max-w-2xl"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
-        transition={{ delay: 2 }}
+        transition={{ delay: 1 }}
       >
         AI Legal Assistant — not a substitute for a licensed attorney. Consult a lawyer for binding legal advice.
       </motion.p>

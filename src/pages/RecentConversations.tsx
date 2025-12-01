@@ -3,12 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { 
   Scale, ArrowLeft, MessageSquare, Trash2, Calendar, 
-  ChevronUp, ChevronDown, Loader2, Search
+  Loader2, Search
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -67,7 +66,6 @@ const RecentConversations = () => {
       .order('updated_at', { ascending: false });
 
     if (data) {
-      // Get message counts for each conversation
       const convWithCounts = await Promise.all(
         data.map(async (conv) => {
           const { count } = await supabase
@@ -88,7 +86,6 @@ const RecentConversations = () => {
   const handleDelete = async () => {
     if (!deleteId) return;
 
-    // First delete messages, then conversation
     await supabase.from('messages').delete().eq('conversation_id', deleteId);
     const { error } = await supabase
       .from('conversations')
@@ -120,7 +117,7 @@ const RecentConversations = () => {
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background overflow-y-auto overflow-x-hidden">
       {/* Navigation */}
       <nav className="fixed top-0 left-0 right-0 z-50 glass-panel border-b border-border">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
@@ -190,72 +187,62 @@ const RecentConversations = () => {
               </Button>
             </motion.div>
           ) : (
-            <ScrollArea className="h-[calc(100vh-300px)]">
-              <div className="space-y-4">
-                {filteredConversations.map((conv, index) => (
-                  <motion.div
-                    key={conv.id}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.05 }}
-                  >
-                    <Card className="p-4 glass-panel hover:border-primary/50 transition-colors">
-                      <div className="flex items-center gap-4">
-                        {/* Up/Down buttons for future navigation */}
-                        <div className="flex flex-col gap-1">
-                          <Button size="icon" variant="ghost" className="h-6 w-6">
-                            <ChevronUp className="h-4 w-4" />
-                          </Button>
-                          <Button size="icon" variant="ghost" className="h-6 w-6">
-                            <ChevronDown className="h-4 w-4" />
-                          </Button>
-                        </div>
+            <div className="space-y-4 overflow-y-auto max-h-[calc(100vh-320px)]">
+              {filteredConversations.map((conv, index) => (
+                <motion.div
+                  key={conv.id}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: index * 0.05 }}
+                >
+                  <Card className="p-4 glass-panel hover:border-primary/50 transition-colors">
+                    <div className="flex items-center gap-4">
+                      {/* Delete button on left */}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-destructive hover:text-destructive hover:bg-destructive/10 shrink-0"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDeleteId(conv.id);
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
 
-                        <div className="p-2 rounded-lg bg-primary/20">
-                          <MessageSquare className="w-5 h-5 text-primary" />
-                        </div>
-                        
-                        <div 
-                          className="flex-1 cursor-pointer"
-                          onClick={() => handleOpenConversation(conv.id)}
-                        >
-                          <h3 className="font-semibold truncate">{conv.title}</h3>
-                          <div className="flex items-center gap-3 text-sm text-muted-foreground">
-                            <span className="flex items-center gap-1">
-                              <Calendar className="h-3 w-3" />
-                              {new Date(conv.updated_at).toLocaleDateString()}
-                            </span>
-                            <span>•</span>
-                            <span>{conv.message_count} messages</span>
-                          </div>
-                        </div>
-
-                        {conv.tags && conv.tags.length > 0 && (
-                          <div className="hidden md:flex gap-1">
-                            {conv.tags.slice(0, 2).map(tag => (
-                              <Badge key={tag} variant="outline" className="text-xs">
-                                {tag}
-                              </Badge>
-                            ))}
-                          </div>
-                        )}
-
-                        <div className="flex items-center gap-2">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="text-destructive hover:text-destructive"
-                            onClick={() => setDeleteId(conv.id)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
+                      <div className="p-2 rounded-lg bg-primary/20 shrink-0">
+                        <MessageSquare className="w-5 h-5 text-primary" />
+                      </div>
+                      
+                      <div 
+                        className="flex-1 cursor-pointer min-w-0"
+                        onClick={() => handleOpenConversation(conv.id)}
+                      >
+                        <h3 className="font-semibold truncate">{conv.title}</h3>
+                        <div className="flex items-center gap-3 text-sm text-muted-foreground">
+                          <span className="flex items-center gap-1">
+                            <Calendar className="h-3 w-3" />
+                            {new Date(conv.updated_at).toLocaleDateString()}
+                          </span>
+                          <span>•</span>
+                          <span>{conv.message_count} messages</span>
                         </div>
                       </div>
-                    </Card>
-                  </motion.div>
-                ))}
-              </div>
-            </ScrollArea>
+
+                      {conv.tags && conv.tags.length > 0 && (
+                        <div className="hidden md:flex gap-1 shrink-0">
+                          {conv.tags.slice(0, 2).map(tag => (
+                            <Badge key={tag} variant="outline" className="text-xs">
+                              {tag}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </Card>
+                </motion.div>
+              ))}
+            </div>
           )}
         </div>
       </div>
