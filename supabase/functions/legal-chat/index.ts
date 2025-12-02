@@ -137,6 +137,7 @@ IMPORTANT: When answering, prioritize information from uploaded documents and Ba
           { role: 'system', content: systemPrompt },
           ...messages,
         ],
+        stream: true,
       }),
     });
 
@@ -159,13 +160,15 @@ IMPORTANT: When answering, prioritize information from uploaded documents and Ba
       throw new Error(`AI Gateway error: ${response.status}`);
     }
 
-    const data = await response.json();
-    const aiResponse = data.choices?.[0]?.message?.content || "I apologize, I couldn't generate a response. Please try again.";
-
-    return new Response(
-      JSON.stringify({ response: aiResponse }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    // Stream the response directly to client
+    return new Response(response.body, {
+      headers: { 
+        ...corsHeaders, 
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      }
+    });
   } catch (error) {
     console.error('Error in legal-chat:', error);
     return new Response(
