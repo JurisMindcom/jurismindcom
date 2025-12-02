@@ -50,6 +50,60 @@ export type Database = {
         }
         Relationships: []
       }
+      bangladesh_laws: {
+        Row: {
+          act_number: string | null
+          amendments: string | null
+          chapter: string | null
+          created_at: string | null
+          id: string
+          last_updated: string | null
+          law_title: string
+          law_title_bn: string | null
+          section_content: string
+          section_content_bn: string | null
+          section_number: string | null
+          section_title: string | null
+          source_url: string | null
+          status: string | null
+          year: number | null
+        }
+        Insert: {
+          act_number?: string | null
+          amendments?: string | null
+          chapter?: string | null
+          created_at?: string | null
+          id?: string
+          last_updated?: string | null
+          law_title: string
+          law_title_bn?: string | null
+          section_content: string
+          section_content_bn?: string | null
+          section_number?: string | null
+          section_title?: string | null
+          source_url?: string | null
+          status?: string | null
+          year?: number | null
+        }
+        Update: {
+          act_number?: string | null
+          amendments?: string | null
+          chapter?: string | null
+          created_at?: string | null
+          id?: string
+          last_updated?: string | null
+          law_title?: string
+          law_title_bn?: string | null
+          section_content?: string
+          section_content_bn?: string | null
+          section_number?: string | null
+          section_title?: string | null
+          source_url?: string | null
+          status?: string | null
+          year?: number | null
+        }
+        Relationships: []
+      }
       bookmarks: {
         Row: {
           case_law_id: string | null
@@ -207,10 +261,12 @@ export type Database = {
           analysis_result: Json | null
           conversation_id: string | null
           created_at: string | null
+          extracted_text: string | null
           file_size: number
           file_type: string
           filename: string
           id: string
+          language: string | null
           ocr_text: string | null
           storage_path: string
           user_id: string
@@ -219,10 +275,12 @@ export type Database = {
           analysis_result?: Json | null
           conversation_id?: string | null
           created_at?: string | null
+          extracted_text?: string | null
           file_size: number
           file_type: string
           filename: string
           id?: string
+          language?: string | null
           ocr_text?: string | null
           storage_path: string
           user_id: string
@@ -231,10 +289,12 @@ export type Database = {
           analysis_result?: Json | null
           conversation_id?: string | null
           created_at?: string | null
+          extracted_text?: string | null
           file_size?: number
           file_type?: string
           filename?: string
           id?: string
+          language?: string | null
           ocr_text?: string | null
           storage_path?: string
           user_id?: string
@@ -248,6 +308,36 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      law_source_sync_log: {
+        Row: {
+          error_message: string | null
+          id: string
+          status: string | null
+          sync_completed_at: string | null
+          sync_started_at: string | null
+          synced_by: string | null
+          total_laws_synced: number | null
+        }
+        Insert: {
+          error_message?: string | null
+          id?: string
+          status?: string | null
+          sync_completed_at?: string | null
+          sync_started_at?: string | null
+          synced_by?: string | null
+          total_laws_synced?: number | null
+        }
+        Update: {
+          error_message?: string | null
+          id?: string
+          status?: string | null
+          sync_completed_at?: string | null
+          sync_started_at?: string | null
+          synced_by?: string | null
+          total_laws_synced?: number | null
+        }
+        Relationships: []
       }
       legal_templates: {
         Row: {

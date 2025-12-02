@@ -1,1 +1,7 @@
 project_id = "nroopuvfkooreoffwxsx"
+
+[functions.legal-chat]
+verify_jwt = false
+
+[functions.process-document]
+verify_jwt = true
