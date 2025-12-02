@@ -16,6 +16,7 @@ import Documents from "./pages/Documents";
 import Admin from "./pages/Admin";
 import Settings from "./pages/Settings";
 import RecentConversations from "./pages/RecentConversations";
+import LawSourceManagement from "./pages/LawSourceManagement";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -37,8 +38,9 @@ const App = () => (
             <Route path="/templates" element={<Templates />} />
             <Route path="/case-law" element={<CaseLaw />} />
             <Route path="/documents" element={<Documents />} />
-            <Route path="/admin" element={<Admin />} />
-            <Route path="/settings" element={<Settings />} />
+          <Route path="/admin" element={<Admin />} />
+          <Route path="/admin/law-sources" element={<LawSourceManagement />} />
+          <Route path="/settings" element={<Settings />} />
             <Route path="/recent-conversations" element={<RecentConversations />} />
             <Route path="*" element={<NotFound />} />
           </Routes>

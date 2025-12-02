@@ -94,13 +94,41 @@ const Documents = () => {
 
       if (uploadError) throw uploadError;
 
+      // Extract text content for .txt files
+      let extractedText = null;
+      if (file.name.toLowerCase().endsWith('.txt')) {
+        extractedText = await file.text();
+      }
+
+      // Detect language for text files
+      const detectLang = (text: string): string => {
+        if (!text || text.length < 10) return 'unknown';
+        const banglaPat = /[\u0980-\u09FF]/;
+        const englishPat = /[a-zA-Z]/;
+        const hasBangla = banglaPat.test(text);
+        const hasEnglish = englishPat.test(text);
+        if (hasBangla && hasEnglish) return 'mixed';
+        if (hasBangla) return 'bangla';
+        if (hasEnglish) return 'english';
+        return 'unknown';
+      };
+
       const { data, error } = await supabase.from('documents').insert({
         user_id: userId,
         filename: file.name,
         file_type: file.type || 'application/octet-stream',
         file_size: file.size,
         storage_path: filePath,
+        extracted_text: extractedText,
+        language: extractedText ? detectLang(extractedText) : 'unknown'
       }).select().single();
+
+      // For non-txt files, trigger background processing if document was created
+      if (!extractedText && data) {
+        supabase.functions.invoke('process-document', {
+          body: { documentId: data.id, storagePath: filePath }
+        }).catch(err => console.error('Background processing error:', err));
+      }
 
       if (data) {
         setDocuments(prev => [data, ...prev]);
@@ -163,6 +191,18 @@ const Documents = () => {
     const sizes = ['Bytes', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  const detectLanguage = (text: string): string => {
+    if (!text || text.length < 10) return 'unknown';
+    const banglaPat = /[\u0980-\u09FF]/;
+    const englishPat = /[a-zA-Z]/;
+    const hasBangla = banglaPat.test(text);
+    const hasEnglish = englishPat.test(text);
+    if (hasBangla && hasEnglish) return 'mixed';
+    if (hasBangla) return 'bangla';
+    if (hasEnglish) return 'english';
+    return 'unknown';
   };
 
   const getFileIcon = (fileType: string) => {

@@ -40,8 +40,10 @@ serve(async (req) => {
   }
 
   try {
-    const { messages, personality, language, responseMode } = await req.json();
+    const { messages, personality, language, responseMode, userId } = await req.json();
     const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
+    const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
+    const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 
     if (!LOVABLE_API_KEY) {
       throw new Error('LOVABLE_API_KEY not configured');
@@ -65,6 +67,49 @@ serve(async (req) => {
       deep: "RESPONSE LENGTH: DEEP MODE - Provide a comprehensive, detailed response with thorough analysis, relevant examples, applicable laws, and context. Be informative and educational.",
     };
 
+    // Fetch user's uploaded document knowledge base
+    let documentContext = '';
+    if (userId && SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY) {
+      try {
+        const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2.38.4");
+        const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+        
+        const { data: docs } = await supabase
+          .from('documents')
+          .select('filename, extracted_text, language')
+          .eq('user_id', userId)
+          .not('extracted_text', 'is', null)
+          .limit(10);
+        
+        if (docs && docs.length > 0) {
+          documentContext = '\n\n--- USER UPLOADED LEGAL DOCUMENTS ---\n';
+          docs.forEach(doc => {
+            if (doc.extracted_text && doc.extracted_text.length > 50) {
+              const preview = doc.extracted_text.substring(0, 2000);
+              documentContext += `\nDocument: ${doc.filename} (${doc.language})\n${preview}\n---\n`;
+            }
+          });
+        }
+
+        // Search Bangladesh Laws database for relevant context
+        const lastUserMessage = messages[messages.length - 1]?.content || '';
+        const { data: laws } = await supabase
+          .from('bangladesh_laws')
+          .select('law_title, section_number, section_content')
+          .textSearch('section_content', lastUserMessage.split(' ').slice(0, 5).join(' & '))
+          .limit(5);
+        
+        if (laws && laws.length > 0) {
+          documentContext += '\n\n--- BANGLADESH LAWS DATABASE ---\n';
+          laws.forEach(law => {
+            documentContext += `\n${law.law_title} - Section ${law.section_number}:\n${law.section_content.substring(0, 1000)}\n---\n`;
+          });
+        }
+      } catch (e) {
+        console.error('Error fetching context:', e);
+      }
+    }
+
     const systemPrompt = `${JURISMIND_IDENTITY}
 
 ${responseModeInstructions[responseMode] || responseModeInstructions.deep}
@@ -74,7 +119,11 @@ Language: ${languageInstructions[language] || languageInstructions.english}
 
 Remember: You are JurisMind AI, trained by RONY. Never claim to be any other AI or mention other AI companies.
 ${responseMode === 'deep' ? 'For detailed responses, end with a short summary (সারমর্ম/Summary).' : ''}
-Cite relevant Acts, sections, and case laws when applicable.`;
+Cite relevant Acts, sections, and case laws when applicable.
+
+${documentContext ? documentContext : ''}
+
+IMPORTANT: When answering, prioritize information from uploaded documents and Bangladesh laws database. Always cite the source (document name or law section) when using this information.`;
 
     const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
       method: 'POST',

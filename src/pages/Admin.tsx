@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import { 
   Scale, ArrowLeft, Users, MessageSquare, FileText, Settings,
   Shield, Activity, Search, Download, Eye, Calendar, TrendingUp,
-  Loader2, Brain, ChevronLeft
+  Loader2, Brain, ChevronLeft, Database
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -391,6 +391,17 @@ const Admin = () => {
                 <h2 className="text-xl font-bold mb-6">System Settings</h2>
                 
                 <div className="space-y-6">
+                  <div className="p-4 rounded-lg bg-secondary/50">
+                    <h3 className="font-semibold mb-2">Bangladesh Laws Database</h3>
+                    <p className="text-sm text-muted-foreground mb-4">
+                      Manage the Bangladesh laws source database and sync from official sources.
+                    </p>
+                    <Button onClick={() => navigate('/admin/law-sources')}>
+                      <Database className="mr-2 h-4 w-4" />
+                      Manage Laws Source
+                    </Button>
+                  </div>
+
                   <div className="p-4 rounded-lg bg-secondary/50">
                     <h3 className="font-semibold mb-2">AI Configuration</h3>
                     <p className="text-sm text-muted-foreground mb-4">

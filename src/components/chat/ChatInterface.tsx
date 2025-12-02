@@ -240,7 +240,8 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
           messages: [...messages, { role: 'user', content: `${responseModeInstruction}\n\n${fullMessage}` }], 
           personality, 
           language,
-          responseMode 
+          responseMode,
+          userId
         },
       });
 
