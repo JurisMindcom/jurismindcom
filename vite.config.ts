@@ -13,7 +13,7 @@ export default defineConfig(({ mode }) => ({
   preview: {
     host: true,
     port: 8080,
-    allowedHosts: ["*"], // ALLOW ALL HOSTS (Genspark, Novita sandbox)
+    allowedHosts: ["all"], // ALLOW ALL HOSTS (Genspark, Novita sandbox)
   },
   plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
   resolve: {
