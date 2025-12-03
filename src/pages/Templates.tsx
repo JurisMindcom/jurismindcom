@@ -3,8 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { 
   Scale, ArrowLeft, FileText, Download, Search, Filter,
-  File, FileCheck, FileWarning, Briefcase, Home as HomeIcon, Users, Heart, X
+  File, FileCheck, FileWarning, Briefcase, Home as HomeIcon, Users, Heart, X, Loader2
 } from 'lucide-react';
+import { generateLegalPDF, downloadPDF, savePDFToDocuments } from '@/lib/pdfGenerator';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -658,32 +659,70 @@ const Templates = () => {
     setFormData(prev => ({ ...prev, [fieldName]: value }));
   };
 
-  const generateDocument = () => {
+  const [isGenerating, setIsGenerating] = useState(false);
+
+  const generateDocument = async () => {
     if (!selectedTemplate) return;
+    
+    setIsGenerating(true);
 
-    // Replace placeholders with form data
-    let content = selectedTemplate.template_content;
-    selectedTemplate.fields?.forEach(field => {
-      const regex = new RegExp(`{{${field.name}}}`, 'g');
-      content = content.replace(regex, formData[field.name] || `[${field.label}]`);
-    });
+    try {
+      // Replace placeholders with form data
+      let content = selectedTemplate.template_content;
+      selectedTemplate.fields?.forEach(field => {
+        const regex = new RegExp(`{{${field.name}}}`, 'g');
+        content = content.replace(regex, formData[field.name] || `[${field.label}]`);
+      });
 
-    // Download the document
-    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${selectedTemplate.template_name.replace(/\s+/g, '_')}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
+      // Generate A4 PDF with proper formatting
+      const pdfBlob = generateLegalPDF(content, {
+        title: selectedTemplate.template_name,
+      });
 
-    toast({
-      title: "Document Generated",
-      description: `${selectedTemplate.template_name} has been downloaded.`,
-    });
+      // Validate PDF magic bytes
+      const arrayBuffer = await pdfBlob.slice(0, 5).arrayBuffer();
+      const bytes = new Uint8Array(arrayBuffer);
+      const header = String.fromCharCode(...bytes);
+      
+      if (!header.startsWith('%PDF-')) {
+        throw new Error('Invalid PDF generated');
+      }
 
-    setSelectedTemplate(null);
-    setFormData({});
+      const filename = `${selectedTemplate.template_name.replace(/\s+/g, '_')}.pdf`;
+
+      // Download the PDF
+      downloadPDF(pdfBlob, filename);
+
+      // Save to Documents if user is authenticated
+      if (isAuthenticated) {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          const result = await savePDFToDocuments(pdfBlob, filename, session.user.id, supabase);
+          if (result.success) {
+            toast({
+              title: "Document Saved",
+              description: `${filename} saved to your Documents.`,
+            });
+          }
+        }
+      }
+
+      toast({
+        title: "PDF Generated",
+        description: `${selectedTemplate.template_name} has been downloaded as A4 PDF.`,
+      });
+
+      setSelectedTemplate(null);
+      setFormData({});
+    } catch (err: any) {
+      toast({
+        title: "Generation Failed",
+        description: err.message || "Could not generate PDF.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   const getCategoryIcon = (category: string) => {
@@ -883,12 +922,16 @@ const Templates = () => {
           </div>
 
           <div className="flex gap-2 pt-4">
-            <Button variant="outline" onClick={() => setSelectedTemplate(null)} className="flex-1">
+            <Button variant="outline" onClick={() => setSelectedTemplate(null)} className="flex-1" disabled={isGenerating}>
               Cancel
             </Button>
-            <Button onClick={generateDocument} className="flex-1 glow-button bg-gradient-to-r from-primary to-primary-glow">
-              <Download className="mr-2 h-4 w-4" />
-              Generate & Download
+            <Button onClick={generateDocument} className="flex-1 glow-button bg-gradient-to-r from-primary to-primary-glow" disabled={isGenerating}>
+              {isGenerating ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="mr-2 h-4 w-4" />
+              )}
+              {isGenerating ? 'Generating PDF...' : 'Generate A4 PDF'}
             </Button>
           </div>
         </DialogContent>

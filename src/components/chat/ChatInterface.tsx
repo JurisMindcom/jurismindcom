@@ -1,8 +1,8 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback, memo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Send, Mic, MicOff, Languages, Bot, Loader2, User, UserCircle,
-  Copy, Check, Zap, BookOpen, Upload, X, FileText
+  Copy, Check, Zap, BookOpen, Upload, X, FileText, AlertCircle
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -18,6 +18,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { analyzeFileContent, formatAnalysisForChat, type FileAnalysis } from '@/lib/fileAnalysis';
 
 interface Message {
   id: string;
@@ -45,6 +46,8 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [filePreview, setFilePreview] = useState<string | null>(null);
+  const [fileAnalysis, setFileAnalysis] = useState<FileAnalysis | null>(null);
+  const [telemetryId, setTelemetryId] = useState<string>('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
@@ -139,6 +142,7 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
     }
     
     setUploadedFile(file);
+    setFileAnalysis(null);
     
     // Create preview for images
     if (file.type.startsWith('image/')) {
@@ -149,7 +153,24 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
       setFilePreview(null);
     }
     
-    toast({ title: "File attached", description: `${file.name} ready for analysis.` });
+    // Auto-analyze the file immediately (SECTION 1 requirement)
+    try {
+      let extractedText = '';
+      if (file.type === 'text/plain' || file.name.endsWith('.txt')) {
+        extractedText = await file.text();
+      }
+      
+      const analysis = await analyzeFileContent(file, extractedText);
+      setFileAnalysis(analysis);
+      setTelemetryId(analysis.telemetry_id);
+      
+      toast({ 
+        title: "File Analyzed", 
+        description: `${file.name} - ${analysis.language_detected.join('/')} detected. ${analysis.entities?.length || 0} entities found.` 
+      });
+    } catch (err) {
+      toast({ title: "File attached", description: `${file.name} ready for analysis.` });
+    }
   };
 
   const uploadFileToStorage = async (file: File) => {
@@ -174,23 +195,29 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
   };
 
   const extractFileContent = async (file: File): Promise<string> => {
-    // For text files, extract content
-    if (file.type === 'text/plain' || file.name.endsWith('.txt')) {
-      return await file.text();
+    // Use file analysis if available
+    if (fileAnalysis) {
+      return formatAnalysisForChat(fileAnalysis);
     }
     
-    // For PDFs and other documents, provide file info
-    const fileInfo = `File: ${file.name}\nType: ${file.type}\nSize: ${(file.size / 1024).toFixed(2)} KB`;
+    // For text files, extract content
+    if (file.type === 'text/plain' || file.name.endsWith('.txt')) {
+      const text = await file.text();
+      return `📄 **File**: ${file.name}\n**Size**: ${(file.size / 1024).toFixed(2)} KB\n\n**Content**:\n${text}`;
+    }
+    
+    // For PDFs and other documents, provide file info with analysis prompt
+    const fileInfo = `📄 **File**: ${file.name}\n**Type**: ${file.type}\n**Size**: ${(file.size / 1024).toFixed(2)} KB`;
     
     if (file.type === 'application/pdf') {
-      return `${fileInfo}\n\n[PDF document uploaded for analysis. Please analyze this legal document and provide insights.]`;
+      return `${fileInfo}\n\n[PDF document uploaded for analysis. Please analyze this legal document, identify key sections, parties involved, and provide insights.]`;
     }
     
     if (file.type.startsWith('image/')) {
-      return `${fileInfo}\n\n[Image uploaded. Please describe what you can help with regarding this image.]`;
+      return `${fileInfo}\n\n[Image uploaded for analysis. Please extract any visible text (OCR), identify document type, and provide relevant legal insights.]`;
     }
     
-    return `${fileInfo}\n\n[Document uploaded for analysis.]`;
+    return `${fileInfo}\n\n[Document uploaded for analysis. Please extract and analyze the content.]`;
   };
 
   const handleSend = async () => {
@@ -217,6 +244,7 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
         }
         setUploadedFile(null);
         setFilePreview(null);
+        setFileAnalysis(null);
         setIsUploading(false);
       }
 
@@ -381,6 +409,7 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
   const clearFile = () => {
     setUploadedFile(null);
     setFilePreview(null);
+    setFileAnalysis(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -486,23 +515,47 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
       </ScrollArea>
 
       <div className="p-4 border-t border-border glass-panel">
-        {/* File Preview */}
+        {/* File Preview with Analysis */}
         {uploadedFile && (
-          <div className="flex items-center gap-3 mb-3 p-3 bg-secondary/50 rounded-lg">
-            {filePreview ? (
-              <img src={filePreview} alt="Preview" className="w-12 h-12 object-cover rounded" />
-            ) : (
-              <div className="w-12 h-12 bg-primary/20 rounded flex items-center justify-center">
-                <FileText className="h-6 w-6 text-primary" />
+          <div className="mb-3 p-3 bg-secondary/50 rounded-lg">
+            <div className="flex items-center gap-3">
+              {filePreview ? (
+                <img src={filePreview} alt="Preview" className="w-12 h-12 object-cover rounded" />
+              ) : (
+                <div className="w-12 h-12 bg-primary/20 rounded flex items-center justify-center">
+                  <FileText className="h-6 w-6 text-primary" />
+                </div>
+              )}
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium truncate">{uploadedFile.name}</p>
+                <p className="text-xs text-muted-foreground">{(uploadedFile.size / 1024).toFixed(1)} KB</p>
+              </div>
+              <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0" onClick={clearFile}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            
+            {/* File Analysis Results */}
+            {fileAnalysis && (
+              <div className="mt-2 pt-2 border-t border-border/50">
+                <div className="flex flex-wrap gap-1 text-xs">
+                  <Badge variant="outline" className="text-xs">
+                    {fileAnalysis.language_detected.join('/')}
+                  </Badge>
+                  {fileAnalysis.entities && fileAnalysis.entities.length > 0 && (
+                    <Badge variant="secondary" className="text-xs">
+                      {fileAnalysis.entities.length} entities
+                    </Badge>
+                  )}
+                  {fileAnalysis.checks.includes('ocr_may_be_required') && (
+                    <Badge variant="outline" className="text-xs text-amber-500 border-amber-500/50">
+                      <AlertCircle className="w-3 h-3 mr-1" />
+                      OCR needed
+                    </Badge>
+                  )}
+                </div>
               </div>
             )}
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium truncate">{uploadedFile.name}</p>
-              <p className="text-xs text-muted-foreground">{(uploadedFile.size / 1024).toFixed(1)} KB</p>
-            </div>
-            <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0" onClick={clearFile}>
-              <X className="h-4 w-4" />
-            </Button>
           </div>
         )}
 
