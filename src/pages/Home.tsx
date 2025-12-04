@@ -1,9 +1,10 @@
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Scale, MessageSquare, FileText, Gavel, BookMarked, ArrowRight, Shield, Globe, Zap } from 'lucide-react';
+import { Scale, MessageSquare, FileText, Gavel, BookMarked, ArrowRight, Shield, Globe, Zap, GraduationCap, Code, Heart } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-
+import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
+import creatorPhoto from '@/assets/creator-rony.png';
 const Home = () => {
   const navigate = useNavigate();
 
@@ -219,6 +220,91 @@ const Home = () => {
               <p className="text-muted-foreground">Get answers in seconds with our powerful AI engine</p>
             </motion.div>
           </div>
+        </div>
+      </section>
+
+      {/* Meet the Creator Section */}
+      <section className="py-20 px-4">
+        <div className="container mx-auto">
+          <motion.div
+            className="text-center mb-12"
+            initial={{ opacity: 0 }}
+            whileInView={{ opacity: 1 }}
+            viewport={{ once: true }}
+          >
+            <h2 className="text-4xl font-bold mb-4">Meet the Creator</h2>
+            <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
+              The visionary behind JurisMind
+            </p>
+          </motion.div>
+
+          <motion.div
+            className="max-w-4xl mx-auto"
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+          >
+            <Card className="glass-panel p-8 md:p-12 border border-primary/20">
+              <div className="flex flex-col md:flex-row items-center gap-8">
+                {/* Photo */}
+                <div className="relative">
+                  <div className="w-48 h-48 md:w-56 md:h-56 rounded-full overflow-hidden ring-4 ring-primary/30 ring-offset-4 ring-offset-background">
+                    <Avatar className="w-full h-full">
+                      <AvatarImage src={creatorPhoto} alt="RONY - Creator of JurisMind" className="object-cover" />
+                      <AvatarFallback className="text-4xl font-bold bg-gradient-to-br from-primary to-primary-glow text-primary-foreground">R</AvatarFallback>
+                    </Avatar>
+                  </div>
+                  <div className="absolute -bottom-2 -right-2 p-3 rounded-full bg-gradient-to-br from-primary to-primary-glow shadow-lg">
+                    <Code className="w-5 h-5 text-primary-foreground" />
+                  </div>
+                </div>
+
+                {/* Info */}
+                <div className="flex-1 text-center md:text-left">
+                  <h3 className="text-3xl font-bold mb-2 bg-gradient-to-r from-primary to-legal-gold bg-clip-text text-transparent">
+                    RONY
+                  </h3>
+                  <p className="text-primary font-medium mb-4">Founder & Developer</p>
+                  
+                  <p className="text-muted-foreground mb-6 leading-relaxed">
+                    A passionate developer and law student dedicated to making legal knowledge accessible to everyone in Bangladesh. 
+                    With a unique blend of technical expertise and legal education, RONY created JurisMind to bridge the gap between 
+                    complex legal systems and everyday people.
+                  </p>
+
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-3 justify-center md:justify-start">
+                      <GraduationCap className="w-5 h-5 text-primary" />
+                      <span className="text-sm text-muted-foreground">
+                        Studying Law & Land Administration at Islamic University
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3 justify-center md:justify-start">
+                      <BookMarked className="w-5 h-5 text-primary" />
+                      <span className="text-sm text-muted-foreground">
+                        Alumni of Savar Cantonment Board Boys High School & Savar Cantonment Public School and College
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3 justify-center md:justify-start">
+                      <Heart className="w-5 h-5 text-primary" />
+                      <span className="text-sm text-muted-foreground">
+                        Passionate about AI, Legal Tech, and Accessibility
+                      </span>
+                    </div>
+                  </div>
+
+                  <Button
+                    variant="outline"
+                    className="mt-6"
+                    onClick={() => navigate('/about')}
+                  >
+                    Learn More About RONY
+                    <ArrowRight className="ml-2 h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            </Card>
+          </motion.div>
         </div>
       </section>
 
