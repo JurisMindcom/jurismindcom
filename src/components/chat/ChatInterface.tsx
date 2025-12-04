@@ -1,8 +1,8 @@
-import { useState, useEffect, useRef, useCallback, memo } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-  Send, Mic, MicOff, Languages, Bot, Loader2, User, UserCircle,
-  Copy, Check, Zap, BookOpen, Upload, X, FileText, AlertCircle
+  Send, Mic, MicOff, Languages, Bot, Loader2, UserCircle,
+  Zap, BookOpen, Upload, X, FileText, AlertCircle
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -19,6 +19,12 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { analyzeFileContent, formatAnalysisForChat, type FileAnalysis } from '@/lib/fileAnalysis';
+import MessageItem from './MessageItem';
+import StreamingMessage from './StreamingMessage';
+import useIncrementalStream from '@/hooks/useIncrementalStream';
+
+// Memory cap: keep only last N messages in state
+const MAX_MESSAGES_IN_MEMORY = 100;
 
 interface Message {
   id: string;
@@ -47,15 +53,30 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
   const [isUploading, setIsUploading] = useState(false);
   const [filePreview, setFilePreview] = useState<string | null>(null);
   const [fileAnalysis, setFileAnalysis] = useState<FileAnalysis | null>(null);
-  const [telemetryId, setTelemetryId] = useState<string>('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(conversationId);
-  const [streamingContent, setStreamingContent] = useState<string>('');
-  const [streamProgress, setStreamProgress] = useState(0);
-  const [isStreaming, setIsStreaming] = useState(false);
-  const abortControllerRef = useRef<AbortController | null>(null);
+  const lastMessageRef = useRef<string>('');
+  
+  // Use the incremental streaming hook for Deep Mode stability
+  const {
+    stream,
+    cancel: cancelStreaming,
+    reset: resetStream,
+    content: streamingContent,
+    progress: streamProgress,
+    isStreaming,
+    hasError: streamHasError,
+    errorMessage: streamErrorMessage,
+    telemetryId,
+  } = useIncrementalStream({
+    maxBufferSize: responseMode === 'deep' ? 100000 : 20000,
+    chunkSize: 150,
+    onError: (error, tid) => {
+      console.error('Stream error:', { error: error.message, telemetryId: tid });
+    },
+  });
 
   useEffect(() => {
     if (conversationId) {
@@ -162,7 +183,6 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
       
       const analysis = await analyzeFileContent(file, extractedText);
       setFileAnalysis(analysis);
-      setTelemetryId(analysis.telemetry_id);
       
       toast({ 
         title: "File Analyzed", 
@@ -225,10 +245,9 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
     if (isLoading || isStreaming) return;
 
     let userMessage = input.trim();
+    lastMessageRef.current = userMessage; // Store for retry
     setInput('');
     setIsLoading(true);
-    setStreamingContent('');
-    setStreamProgress(0);
 
     try {
       let fileContext = '';
@@ -267,125 +286,44 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
         ? 'RESPONSE MODE: SHORT - Give a brief, direct answer in 1-7 lines. No lengthy explanations.'
         : 'RESPONSE MODE: DEEP - Provide a detailed, comprehensive answer with analysis, examples, and relevant laws.';
 
-      // Use streaming for responses
-      setIsStreaming(true);
       setIsLoading(false);
-      abortControllerRef.current = new AbortController();
 
+      // Use the incremental streaming hook
       const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/legal-chat`;
-      const response = await fetch(CHAT_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-        },
-        body: JSON.stringify({
+      const result = await stream(
+        CHAT_URL,
+        {
           messages: [...messages, { role: 'user', content: `${responseModeInstruction}\n\n${fullMessage}` }],
           personality,
           language,
           responseMode,
           userId,
-        }),
-        signal: abortControllerRef.current.signal,
-      });
-
-      if (!response.ok) {
-        if (response.status === 429) {
-          throw new Error('Rate limit exceeded. Please try again later.');
+        },
+        {
+          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
         }
-        if (response.status === 402) {
-          throw new Error('AI credits exhausted. Please contact support.');
+      );
+
+      // Only save if we have content and it wasn't aborted with error
+      if (result.content && !result.error) {
+        const assistantMsg = await saveMessage(convId, 'assistant', result.content);
+        if (assistantMsg) {
+          setMessages(prev => [...prev, { 
+            id: assistantMsg.id, 
+            role: 'assistant', 
+            content: assistantMsg.content, 
+            created_at: assistantMsg.created_at 
+          }]);
         }
-        throw new Error('Failed to get response');
+        resetStream();
+      } else if (result.error) {
+        toast({ title: "Error", description: result.error, variant: "destructive" });
       }
-
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error('No response body');
-
-      const decoder = new TextDecoder();
-      let buffer = '';
-      let accumulatedContent = '';
-      let tokenCount = 0;
-      const startTime = Date.now();
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (let line of lines) {
-          line = line.trim();
-          if (!line || line.startsWith(':')) continue;
-          if (!line.startsWith('data: ')) continue;
-
-          const jsonStr = line.slice(6);
-          if (jsonStr === '[DONE]') continue;
-
-          try {
-            const parsed = JSON.parse(jsonStr);
-            const content = parsed.choices?.[0]?.delta?.content;
-            if (content) {
-              accumulatedContent += content;
-              tokenCount++;
-              setStreamingContent(accumulatedContent);
-              
-              // Update progress (estimate)
-              const elapsed = Date.now() - startTime;
-              const tokensPerMs = tokenCount / elapsed;
-              const estimatedTotal = responseMode === 'deep' ? 500 : 100;
-              const progress = Math.min(95, (tokenCount / estimatedTotal) * 100);
-              setStreamProgress(progress);
-
-              // Yield to UI every 20 tokens to prevent blocking
-              if (tokenCount % 20 === 0) {
-                await new Promise(resolve => setTimeout(resolve, 0));
-              }
-            }
-          } catch (e) {
-            console.warn('Failed to parse SSE chunk:', e);
-          }
-        }
-      }
-
-      setStreamProgress(100);
-      
-      // Save the complete response
-      const assistantMsg = await saveMessage(convId, 'assistant', accumulatedContent);
-      if (assistantMsg) {
-        setMessages(prev => [...prev, { 
-          id: assistantMsg.id, 
-          role: 'assistant', 
-          content: assistantMsg.content, 
-          created_at: assistantMsg.created_at 
-        }]);
-      }
-
-      setStreamingContent('');
     } catch (error: any) {
-      if (error.name === 'AbortError') {
-        toast({ title: "Cancelled", description: "Response generation cancelled." });
-      } else {
-        toast({ title: "Error", description: error.message || "Failed to send message.", variant: "destructive" });
-      }
-      setStreamingContent('');
+      toast({ title: "Error", description: error.message || "Failed to send message.", variant: "destructive" });
+      resetStream();
     } finally {
       setIsLoading(false);
-      setIsStreaming(false);
-      setStreamProgress(0);
-      abortControllerRef.current = null;
-    }
-  };
-
-  const cancelStreaming = () => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-      setIsStreaming(false);
-      setStreamingContent('');
-      setStreamProgress(0);
-      toast({ title: "Cancelled", description: "Stopped generating response." });
     }
   };
 
@@ -443,63 +381,49 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
             </motion.div>
           ) : (
             <div className="space-y-4 pb-4">
-              {messages.map((message, index) => (
-                <motion.div key={message.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.05 }} className={`flex gap-3 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  {message.role === 'assistant' && (
-                    <div className="p-2 rounded-lg bg-primary/20 h-fit shrink-0"><Bot className="w-5 h-5 text-primary" /></div>
-                  )}
-
-                  <Card className={`max-w-[80%] p-4 relative group ${message.role === 'user' ? 'bg-gradient-to-br from-primary to-primary-glow text-primary-foreground' : 'glass-panel'}`}>
-                    <p className="text-sm whitespace-pre-wrap pr-8">{message.content}</p>
-                    <p className="text-xs opacity-70 mt-2">{new Date(message.created_at).toLocaleTimeString()}</p>
-                    
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button size="icon" variant="ghost" className="absolute top-2 right-2 h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleCopy(message.content, message.id)}>
-                            {copiedId === message.id ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>Copy</TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  </Card>
-
-                  {message.role === 'user' && (
-                    <div className="p-2 rounded-lg bg-primary/20 h-fit shrink-0"><User className="w-5 h-5 text-primary" /></div>
-                  )}
-                </motion.div>
+              {/* Render only last N messages for memory efficiency */}
+              {messages.slice(-MAX_MESSAGES_IN_MEMORY).map((message, index) => (
+                <MessageItem
+                  key={message.id}
+                  id={message.id}
+                  role={message.role}
+                  content={message.content}
+                  created_at={message.created_at}
+                  index={index}
+                  copiedId={copiedId}
+                  onCopy={handleCopy}
+                />
               ))}
 
-              {/* Streaming message */}
-              {isStreaming && streamingContent && (
-                <motion.div className="flex gap-3" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-                  <div className="p-2 rounded-lg bg-primary/20 h-fit"><Bot className="w-5 h-5 text-primary" /></div>
-                  <Card className="glass-panel p-4 relative group max-w-[85%]">
-                    <p className="text-sm whitespace-pre-wrap break-words leading-relaxed">{streamingContent}</p>
-                    <div className="flex items-center gap-2 mt-3">
-                      <div className="h-1.5 flex-1 bg-muted rounded-full overflow-hidden">
-                        <motion.div 
-                          className="h-full bg-primary"
-                          initial={{ width: 0 }}
-                          animate={{ width: `${streamProgress}%` }}
-                          transition={{ duration: 0.3 }}
-                        />
-                      </div>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-7 px-2"
-                        onClick={cancelStreaming}
-                      >
-                        <X className="h-3 w-3" />
-                      </Button>
-                    </div>
-                  </Card>
-                </motion.div>
+              {/* Streaming message with Deep Mode fallback UI */}
+              {(isStreaming || streamHasError) && (
+                <StreamingMessage
+                  content={streamingContent}
+                  progress={streamProgress}
+                  isDeepMode={responseMode === 'deep'}
+                  hasError={streamHasError}
+                  errorMessage={streamErrorMessage}
+                  telemetryId={telemetryId}
+                  onCancel={cancelStreaming}
+                  onRetry={() => {
+                    resetStream();
+                    // Re-send the last message
+                    if (lastMessageRef.current) {
+                      setInput(lastMessageRef.current);
+                    }
+                  }}
+                  onSwitchToShort={() => {
+                    setResponseMode('short');
+                    resetStream();
+                    toast({
+                      title: "Switched to Short Mode",
+                      description: "Try sending your message again.",
+                    });
+                  }}
+                />
               )}
 
-              {isLoading && (
+              {isLoading && !isStreaming && (
                 <motion.div className="flex gap-3" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
                   <div className="p-2 rounded-lg bg-primary/20 h-fit"><Bot className="w-5 h-5 text-primary" /></div>
                   <Card className="glass-panel p-4">
