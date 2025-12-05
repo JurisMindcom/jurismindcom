@@ -2,7 +2,6 @@ import { memo } from 'react';
 import { motion } from 'framer-motion';
 import { Bot, X, AlertTriangle, RefreshCw, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 
 interface StreamProgress {
@@ -43,23 +42,24 @@ const StreamingMessage = memo(({
   if (hasError) {
     return (
       <motion.div 
-        className="flex gap-3" 
+        className="w-full" 
         initial={{ opacity: 0 }} 
         animate={{ opacity: 1 }}
       >
-        <div className="p-2 rounded-lg bg-destructive/20 h-fit">
-          <AlertTriangle className="w-5 h-5 text-destructive" />
-        </div>
-        <Card className="glass-panel p-4 max-w-[85%] border-destructive/30">
-          <div className="space-y-3">
+        <div className="flex items-start gap-3 w-full">
+          <div className="p-2 rounded-full bg-destructive/20 shrink-0 mt-1">
+            <AlertTriangle className="w-5 h-5 text-destructive" />
+          </div>
+          
+          <div className="flex-1 min-w-0 space-y-3">
             <p className="text-sm text-destructive font-medium">
               {errorMessage || 'Deep Mode encountered an issue'}
             </p>
             
             {content && (
-              <div className="pt-2 border-t border-border">
+              <div className="pt-2 border-t border-border/50">
                 <p className="text-xs text-muted-foreground mb-1">Partial response:</p>
-                <p className="text-sm whitespace-pre-wrap break-words">{content}</p>
+                <p className="text-foreground whitespace-pre-wrap break-words leading-relaxed">{content}</p>
               </div>
             )}
 
@@ -84,58 +84,64 @@ const StreamingMessage = memo(({
               )}
             </div>
           </div>
-        </Card>
+        </div>
       </motion.div>
     );
   }
 
+  // ChatGPT-style: Full width streaming response
   return (
     <motion.div 
-      className="flex gap-3" 
+      className="w-full group" 
       initial={{ opacity: 0 }} 
       animate={{ opacity: 1 }}
     >
-      <div className="p-2 rounded-lg bg-primary/20 h-fit">
-        <Bot className="w-5 h-5 text-primary" />
-      </div>
-      <Card className="glass-panel p-4 relative max-w-[85%]">
-        {/* Content area with word-break for long responses */}
-        <div className="text-sm whitespace-pre-wrap break-words leading-relaxed max-h-[60vh] overflow-y-auto">
-          {content || (
-            <span className="text-muted-foreground animate-pulse">
-              {isDeepMode ? 'Generating detailed response...' : 'Thinking...'}
-            </span>
-          )}
+      <div className="flex items-start gap-3 w-full">
+        <div className="p-2 rounded-full bg-primary/20 shrink-0 mt-1">
+          <Bot className="w-5 h-5 text-primary" />
         </div>
-
-        {/* Progress section */}
-        <div className="mt-3 pt-2 border-t border-border/50 space-y-2">
-          <div className="flex items-center gap-2">
-            <Progress value={progress.percent} className="h-1.5 flex-1" />
-            <span className="text-xs text-muted-foreground min-w-[40px] text-right">
-              {Math.round(progress.percent)}%
-            </span>
-          </div>
-
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>
-              {progress.tokensStreamed} tokens
-              {progress.estimatedRemainingMs > 0 && (
-                <> • {formatTime(progress.estimatedRemainingMs)} remaining</>
+        
+        <div className="flex-1 min-w-0">
+          {/* Content area - ChatGPT style */}
+          <div className="prose prose-sm dark:prose-invert max-w-none">
+            <p className="text-foreground whitespace-pre-wrap break-words leading-relaxed m-0">
+              {content || (
+                <span className="text-muted-foreground animate-pulse">
+                  {isDeepMode ? 'Generating detailed response...' : 'Thinking...'}
+                </span>
               )}
-            </span>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-6 px-2 text-xs"
-              onClick={onCancel}
-            >
-              <X className="h-3 w-3 mr-1" />
-              Cancel
-            </Button>
+            </p>
+          </div>
+
+          {/* Progress section - minimal style */}
+          <div className="mt-3 pt-2 space-y-2">
+            <div className="flex items-center gap-2">
+              <Progress value={progress.percent} className="h-1 flex-1 max-w-[200px]" />
+              <span className="text-xs text-muted-foreground">
+                {Math.round(progress.percent)}%
+              </span>
+            </div>
+
+            <div className="flex items-center gap-3 text-xs text-muted-foreground">
+              <span>
+                {progress.tokensStreamed} tokens
+                {progress.estimatedRemainingMs > 0 && (
+                  <> • {formatTime(progress.estimatedRemainingMs)} remaining</>
+                )}
+              </span>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 px-2 text-xs"
+                onClick={onCancel}
+              >
+                <X className="h-3 w-3 mr-1" />
+                Cancel
+              </Button>
+            </div>
           </div>
         </div>
-      </Card>
+      </div>
     </motion.div>
   );
 });
