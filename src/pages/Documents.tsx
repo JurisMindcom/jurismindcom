@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import PDFViewer from '@/components/PDFViewer';
 
 interface Document {
   id: string;
@@ -317,16 +318,20 @@ const Documents = () => {
 
       {/* Preview Dialog */}
       <Dialog open={!!previewDoc} onOpenChange={() => { setPreviewDoc(null); if (previewUrl) URL.revokeObjectURL(previewUrl); setPreviewUrl(null); }}>
-        <DialogContent className="max-w-4xl h-[80vh]">
+        <DialogContent className="max-w-4xl h-[85vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>{previewDoc?.filename}</DialogTitle>
           </DialogHeader>
-          <div className="flex-1 overflow-auto">
+          <div className="flex-1 overflow-hidden">
             {previewUrl && previewDoc && (
               previewDoc.file_type.includes('image') ? (
-                <img src={previewUrl} alt={previewDoc.filename} className="max-w-full mx-auto" />
+                <div className="h-full overflow-auto flex items-center justify-center">
+                  <img src={previewUrl} alt={previewDoc.filename} className="max-w-full max-h-full object-contain" />
+                </div>
               ) : previewDoc.file_type.includes('pdf') ? (
-                <iframe src={previewUrl} className="w-full h-full min-h-[60vh]" />
+                <PDFViewer url={previewUrl} filename={previewDoc.filename} />
+              ) : previewDoc.file_type.includes('text') || previewDoc.filename.endsWith('.txt') ? (
+                <iframe src={previewUrl} className="w-full h-full border-0" />
               ) : (
                 <div className="text-center py-12">
                   <FileText className="w-12 h-12 text-muted-foreground mx-auto mb-4" />

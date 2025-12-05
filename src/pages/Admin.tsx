@@ -315,6 +315,10 @@ const Admin = () => {
                           className="flex items-center justify-between p-4 rounded-lg bg-secondary/50 hover:bg-secondary transition-colors"
                         >
                           <div className="flex items-center gap-3">
+                            <Button variant="outline" size="sm" onClick={() => fetchUserDetails(user)}>
+                              <Eye className="mr-2 h-4 w-4" />
+                              View Profile
+                            </Button>
                             <Avatar className="h-10 w-10">
                               <AvatarImage src={user.avatar_url || ''} />
                               <AvatarFallback className="bg-primary text-primary-foreground">
@@ -329,13 +333,7 @@ const Admin = () => {
                               )}
                             </div>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <Badge variant="secondary">User</Badge>
-                            <Button variant="outline" size="sm" onClick={() => fetchUserDetails(user)}>
-                              <Eye className="mr-2 h-4 w-4" />
-                              View Profile
-                            </Button>
-                          </div>
+                          <Badge variant="secondary">User</Badge>
                         </div>
                       ))}
                   </div>
