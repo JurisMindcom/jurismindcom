@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Send, Mic, MicOff, Languages, Bot, Loader2, UserCircle,
-  Zap, BookOpen, Upload, X, FileText, AlertCircle
+  Zap, BookOpen, Upload, X, FileText, AlertCircle, Globe, Scan
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -53,6 +53,10 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
   const [isUploading, setIsUploading] = useState(false);
   const [filePreview, setFilePreview] = useState<string | null>(null);
   const [fileAnalysis, setFileAnalysis] = useState<FileAnalysis | null>(null);
+  const [isOcrProcessing, setIsOcrProcessing] = useState(false);
+  const [ocrResult, setOcrResult] = useState<any>(null);
+  const [scrapedContent, setScrapedContent] = useState<any>(null);
+  const [isScrapingUrl, setIsScrapingUrl] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
@@ -164,6 +168,7 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
     
     setUploadedFile(file);
     setFileAnalysis(null);
+    setOcrResult(null);
     
     // Create preview for images
     if (file.type.startsWith('image/')) {
@@ -174,7 +179,7 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
       setFilePreview(null);
     }
     
-    // Auto-analyze the file immediately (SECTION 1 requirement)
+    // Auto-analyze the file immediately
     try {
       let extractedText = '';
       if (file.type === 'text/plain' || file.name.endsWith('.txt')) {
@@ -184,6 +189,11 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
       const analysis = await analyzeFileContent(file, extractedText);
       setFileAnalysis(analysis);
       
+      // For images and PDFs, trigger advanced OCR automatically
+      if (file.type.startsWith('image/') || file.type === 'application/pdf') {
+        await runAdvancedOcr(file);
+      }
+      
       toast({ 
         title: "File Analyzed", 
         description: `${file.name} - ${analysis.language_detected.join('/')} detected. ${analysis.entities?.length || 0} entities found.` 
@@ -191,6 +201,92 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
     } catch (err) {
       toast({ title: "File attached", description: `${file.name} ready for analysis.` });
     }
+  };
+
+  // Advanced OCR using Gemini Vision
+  const runAdvancedOcr = async (file: File) => {
+    setIsOcrProcessing(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('filename', file.name);
+      formData.append('mimeType', file.type);
+
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/analyze-document-ocr`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error('OCR analysis failed');
+      }
+
+      const result = await response.json();
+      
+      if (result.success) {
+        setOcrResult(result);
+        toast({
+          title: "OCR Complete",
+          description: `Document type: ${result.documentType}. ${result.entities?.length || 0} entities extracted.`,
+        });
+      }
+    } catch (err) {
+      console.error('OCR error:', err);
+      toast({
+        title: "OCR Notice",
+        description: "Advanced OCR will be done when you send the message.",
+      });
+    } finally {
+      setIsOcrProcessing(false);
+    }
+  };
+
+  // Web scraping function
+  const scrapeWebsite = async (url: string) => {
+    setIsScrapingUrl(true);
+    try {
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scrape-website`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ url }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to scrape website');
+      }
+
+      const result = await response.json();
+      
+      if (result.success) {
+        setScrapedContent(result);
+        toast({
+          title: "Website Scraped",
+          description: `Loaded: ${result.title} (${result.content?.length || 0} chars)`,
+        });
+        return result;
+      } else {
+        throw new Error(result.error || 'Scraping failed');
+      }
+    } catch (err: any) {
+      console.error('Scraping error:', err);
+      toast({
+        title: "Scraping Failed",
+        description: err.message || "Could not fetch website content.",
+        variant: "destructive",
+      });
+      return null;
+    } finally {
+      setIsScrapingUrl(false);
+    }
+  };
+
+  // Detect URLs in input
+  const detectUrl = (text: string): string | null => {
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const match = text.match(urlRegex);
+    return match ? match[0] : null;
   };
 
   const uploadFileToStorage = async (file: File) => {
@@ -215,6 +311,25 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
   };
 
   const extractFileContent = async (file: File): Promise<string> => {
+    // Use OCR result if available (most accurate)
+    if (ocrResult && ocrResult.success) {
+      return `📄 **File**: ${file.name}
+**Document Type**: ${ocrResult.documentType}
+**Language**: ${ocrResult.language}
+**Size**: ${(file.size / 1024).toFixed(2)} KB
+
+---OCR EXTRACTED TEXT---
+${ocrResult.extractedText}
+
+---KEY ENTITIES DETECTED---
+${ocrResult.entities?.map((e: any) => `• ${e.type}: ${e.value}`).join('\n') || 'None detected'}
+
+---DOCUMENT SUMMARY---
+${ocrResult.summary}
+
+[Telemetry ID: ${ocrResult.telemetryId}]`;
+    }
+    
     // Use file analysis if available
     if (fileAnalysis) {
       return formatAnalysisForChat(fileAnalysis);
@@ -251,6 +366,41 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
 
     try {
       let fileContext = '';
+      let webContext = '';
+      
+      // Check for URL in message and scrape if found
+      const detectedUrl = detectUrl(userMessage);
+      if (detectedUrl && !scrapedContent) {
+        const scraped = await scrapeWebsite(detectedUrl);
+        if (scraped && scraped.success) {
+          webContext = `
+---WEB CONTENT FROM: ${scraped.url}---
+**Title**: ${scraped.title}
+**Description**: ${scraped.description}
+
+**Headings**:
+${scraped.headings?.slice(0, 15).join('\n') || 'None'}
+
+**Content**:
+${scraped.content?.substring(0, 15000) || 'No content extracted'}
+
+---END OF WEB CONTENT---
+
+`;
+        }
+      } else if (scrapedContent && scrapedContent.success) {
+        webContext = `
+---WEB CONTENT FROM: ${scrapedContent.url}---
+**Title**: ${scrapedContent.title}
+**Description**: ${scrapedContent.description}
+
+**Content**:
+${scrapedContent.content?.substring(0, 15000) || 'No content extracted'}
+
+---END OF WEB CONTENT---
+
+`;
+      }
       
       if (uploadedFile) {
         setIsUploading(true);
@@ -264,11 +414,16 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
         setUploadedFile(null);
         setFilePreview(null);
         setFileAnalysis(null);
+        setOcrResult(null);
         setIsUploading(false);
       }
+      
+      // Clear scraped content after use
+      setScrapedContent(null);
 
-      const fullMessage = fileContext 
-        ? `${fileContext}\n\nUser Query: ${userMessage || 'Please analyze this file.'}`
+      const contextParts = [webContext, fileContext].filter(Boolean).join('\n');
+      const fullMessage = contextParts 
+        ? `${contextParts}\n\nUser Query: ${userMessage || 'Please analyze this content.'}`
         : userMessage;
 
       let convId = currentConversationId;
@@ -348,6 +503,8 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
     setUploadedFile(null);
     setFilePreview(null);
     setFileAnalysis(null);
+    setOcrResult(null);
+    setScrapedContent(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -440,6 +597,43 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
 
       <div className="p-4 border-t border-border glass-panel">
         {/* File Preview with Analysis */}
+        {/* URL Scraping Indicator */}
+        {isScrapingUrl && (
+          <div className="mb-3 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-blue-500/20 rounded flex items-center justify-center">
+                <Globe className="h-5 w-5 text-blue-500 animate-pulse" />
+              </div>
+              <div className="flex-1">
+                <p className="text-sm font-medium text-blue-400">Scraping Website...</p>
+                <p className="text-xs text-muted-foreground">Fetching and analyzing content</p>
+              </div>
+              <Loader2 className="h-5 w-5 text-blue-500 animate-spin" />
+            </div>
+          </div>
+        )}
+
+        {/* Scraped Content Preview */}
+        {scrapedContent && scrapedContent.success && (
+          <div className="mb-3 p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-green-500/20 rounded flex items-center justify-center">
+                <Globe className="h-5 w-5 text-green-500" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium truncate">{scrapedContent.title}</p>
+                <p className="text-xs text-muted-foreground truncate">{scrapedContent.url}</p>
+              </div>
+              <Badge variant="secondary" className="text-xs">
+                {(scrapedContent.content?.length / 1000).toFixed(1)}K chars
+              </Badge>
+              <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0" onClick={() => setScrapedContent(null)}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        )}
+
         {uploadedFile && (
           <div className="mb-3 p-3 bg-secondary/50 rounded-lg">
             <div className="flex items-center gap-3">
@@ -459,27 +653,54 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
               </Button>
             </div>
             
-            {/* File Analysis Results */}
-            {fileAnalysis && (
-              <div className="mt-2 pt-2 border-t border-border/50">
-                <div className="flex flex-wrap gap-1 text-xs">
-                  <Badge variant="outline" className="text-xs">
-                    {fileAnalysis.language_detected.join('/')}
+            {/* File Analysis & OCR Results */}
+            <div className="mt-2 pt-2 border-t border-border/50">
+              <div className="flex flex-wrap gap-1 text-xs">
+                {fileAnalysis && (
+                  <>
+                    <Badge variant="outline" className="text-xs">
+                      {fileAnalysis.language_detected.join('/')}
+                    </Badge>
+                    {fileAnalysis.entities && fileAnalysis.entities.length > 0 && (
+                      <Badge variant="secondary" className="text-xs">
+                        {fileAnalysis.entities.length} entities
+                      </Badge>
+                    )}
+                  </>
+                )}
+                
+                {isOcrProcessing && (
+                  <Badge variant="outline" className="text-xs text-blue-400 border-blue-400/50">
+                    <Scan className="w-3 h-3 mr-1 animate-pulse" />
+                    OCR Processing...
                   </Badge>
-                  {fileAnalysis.entities && fileAnalysis.entities.length > 0 && (
+                )}
+                
+                {ocrResult && ocrResult.success && (
+                  <>
+                    <Badge variant="outline" className="text-xs text-green-400 border-green-400/50">
+                      <Scan className="w-3 h-3 mr-1" />
+                      OCR Complete
+                    </Badge>
                     <Badge variant="secondary" className="text-xs">
-                      {fileAnalysis.entities.length} entities
+                      {ocrResult.documentType}
                     </Badge>
-                  )}
-                  {fileAnalysis.checks.includes('ocr_may_be_required') && (
-                    <Badge variant="outline" className="text-xs text-amber-500 border-amber-500/50">
-                      <AlertCircle className="w-3 h-3 mr-1" />
-                      OCR needed
-                    </Badge>
-                  )}
-                </div>
+                    {ocrResult.entities?.length > 0 && (
+                      <Badge variant="secondary" className="text-xs">
+                        {ocrResult.entities.length} extracted
+                      </Badge>
+                    )}
+                  </>
+                )}
+                
+                {!ocrResult && fileAnalysis?.checks.includes('ocr_may_be_required') && !isOcrProcessing && (
+                  <Badge variant="outline" className="text-xs text-amber-500 border-amber-500/50">
+                    <AlertCircle className="w-3 h-3 mr-1" />
+                    OCR pending
+                  </Badge>
+                )}
               </div>
-            )}
+            </div>
           </div>
         )}
 
@@ -515,15 +736,15 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button variant="outline" size="icon" onClick={() => fileInputRef.current?.click()} disabled={isUploading}>
-                    {isUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                  <Button variant="outline" size="icon" onClick={() => fileInputRef.current?.click()} disabled={isUploading || isOcrProcessing}>
+                    {isUploading || isOcrProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>Upload File (PDF, Image, Doc)</TooltipContent>
               </Tooltip>
             </TooltipProvider>
             
-            <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileUpload} accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png,.xlsx,.xls,.zip,.webp" />
+            <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileUpload} accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png,.xlsx,.xls,.zip,.webp,.bmp,.tiff,.gif" />
 
             <TooltipProvider>
               <Tooltip>
@@ -543,19 +764,19 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
           </div>
 
           <Textarea 
-            placeholder="Type your legal question here..." 
+            placeholder="Type your question or paste a URL to analyze..." 
             value={input} 
             onChange={(e) => setInput(e.target.value)} 
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }}} 
             className="min-h-[60px] max-h-[120px] resize-none" 
-            disabled={isLoading} 
+            disabled={isLoading || isScrapingUrl} 
           />
 
           <div className="flex flex-col gap-2">
             <Button variant="outline" size="icon" onClick={() => toast({ title: "Voice input", description: "Coming soon!" })} className={isListening ? 'bg-primary text-primary-foreground' : ''}>
               {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
             </Button>
-            <Button size="icon" onClick={handleSend} disabled={(!input.trim() && !uploadedFile) || isLoading} className="glow-button bg-gradient-to-r from-primary to-primary-glow">
+            <Button size="icon" onClick={handleSend} disabled={(!input.trim() && !uploadedFile) || isLoading || isScrapingUrl} className="glow-button bg-gradient-to-r from-primary to-primary-glow">
               <Send className="h-4 w-4" />
             </Button>
           </div>
