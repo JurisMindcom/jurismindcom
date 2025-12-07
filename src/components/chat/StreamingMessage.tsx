@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import { motion } from 'framer-motion';
-import { Bot, X, AlertTriangle, RefreshCw, Zap } from 'lucide-react';
+import { Bot, X, AlertTriangle, RefreshCw, Zap, Flame } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 
@@ -14,6 +14,7 @@ interface StreamingMessageProps {
   content: string;
   progress: StreamProgress;
   isDeepMode: boolean;
+  isExtremeMode?: boolean;
   hasError: boolean;
   errorMessage?: string;
   telemetryId?: string;
@@ -26,6 +27,7 @@ const StreamingMessage = memo(({
   content,
   progress,
   isDeepMode,
+  isExtremeMode,
   hasError,
   errorMessage,
   telemetryId,
@@ -97,8 +99,12 @@ const StreamingMessage = memo(({
       animate={{ opacity: 1 }}
     >
       <div className="flex items-start gap-3 w-full">
-        <div className="p-2 rounded-full bg-primary/20 shrink-0 mt-1">
-          <Bot className="w-5 h-5 text-primary" />
+        <div className={`p-2 rounded-full shrink-0 mt-1 ${isExtremeMode ? 'bg-orange-500/20' : 'bg-primary/20'}`}>
+          {isExtremeMode ? (
+            <Flame className="w-5 h-5 text-orange-500" />
+          ) : (
+            <Bot className="w-5 h-5 text-primary" />
+          )}
         </div>
         
         <div className="flex-1 min-w-0">
@@ -107,7 +113,11 @@ const StreamingMessage = memo(({
             <p className="text-foreground whitespace-pre-wrap break-words leading-relaxed m-0">
               {content || (
                 <span className="text-muted-foreground animate-pulse">
-                  {isDeepMode ? 'Generating detailed response...' : 'Thinking...'}
+                  {isExtremeMode 
+                    ? 'Generating extreme detailed response (3,500-4,500 words)...' 
+                    : isDeepMode 
+                      ? 'Generating detailed response...' 
+                      : 'Thinking...'}
                 </span>
               )}
             </p>

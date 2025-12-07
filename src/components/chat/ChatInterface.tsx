@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Send, Mic, MicOff, Languages, Bot, Loader2, UserCircle,
-  Zap, BookOpen, Upload, X, FileText, AlertCircle, Globe, Scan
+  Zap, BookOpen, Upload, X, FileText, AlertCircle, Globe, Scan, Flame, ChevronDown
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -18,6 +18,12 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { analyzeFileContent, formatAnalysisForChat, type FileAnalysis } from '@/lib/fileAnalysis';
 import MessageItem from './MessageItem';
 import StreamingMessage from './StreamingMessage';
@@ -47,7 +53,7 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
   const [personality, setPersonality] = useState<'lawyer' | 'judge' | 'researcher' | 'student'>('lawyer');
   const [language, setLanguage] = useState<'bangla' | 'english' | 'mixed'>('english');
   const [isListening, setIsListening] = useState(false);
-  const [responseMode, setResponseMode] = useState<'short' | 'deep'>('deep');
+  const [responseMode, setResponseMode] = useState<'short' | 'deep' | 'extreme'>('deep');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -75,8 +81,8 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
     errorMessage: streamErrorMessage,
     telemetryId,
   } = useIncrementalStream({
-    maxBufferSize: responseMode === 'deep' ? 100000 : 20000,
-    chunkSize: 150,
+    maxBufferSize: responseMode === 'extreme' ? 500000 : responseMode === 'deep' ? 100000 : 20000,
+    chunkSize: responseMode === 'extreme' ? 200 : 150,
     onError: (error, tid) => {
       console.error('Stream error:', { error: error.message, telemetryId: tid });
     },
@@ -105,7 +111,7 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
         .single();
       
       if (data?.response_mode) {
-        setResponseMode(data.response_mode as 'short' | 'deep');
+        setResponseMode(data.response_mode as 'short' | 'deep' | 'extreme');
       }
     };
     loadPreferences();
@@ -489,14 +495,15 @@ ${scrapedContent.content?.substring(0, 15000) || 'No content extracted'}
     toast({ title: "Copied", description: "Text copied to clipboard." });
   };
 
-  const toggleResponseMode = async () => {
-    const newMode = responseMode === 'short' ? 'deep' : 'short';
+  const handleResponseModeChange = async (newMode: 'short' | 'deep' | 'extreme') => {
     setResponseMode(newMode);
     await supabase.from('profiles').update({ response_mode: newMode }).eq('id', userId);
-    toast({
-      title: newMode === 'short' ? "Short Answer Mode" : "Deep Answer Mode",
-      description: newMode === 'short' ? "Responses will be brief (1-7 lines)." : "Responses will be detailed and comprehensive.",
-    });
+    const modeDescriptions = {
+      short: { title: "Short Answer Mode", description: "Responses will be brief (1-7 lines)." },
+      deep: { title: "Deep Answer Mode", description: "Responses will be detailed and comprehensive." },
+      extreme: { title: "Extreme Deep Mode Activated", description: "Responses will be 3,500-4,500 words with 12 structured sections." },
+    };
+    toast(modeDescriptions[newMode]);
   };
 
   const clearFile = () => {
@@ -557,7 +564,8 @@ ${scrapedContent.content?.substring(0, 15000) || 'No content extracted'}
                 <StreamingMessage
                   content={streamingContent}
                   progress={streamProgress}
-                  isDeepMode={responseMode === 'deep'}
+                  isDeepMode={responseMode === 'deep' || responseMode === 'extreme'}
+                  isExtremeMode={responseMode === 'extreme'}
                   hasError={streamHasError}
                   errorMessage={streamErrorMessage}
                   telemetryId={telemetryId}
@@ -746,21 +754,58 @@ ${scrapedContent.content?.substring(0, 15000) || 'No content extracted'}
             
             <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileUpload} accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png,.xlsx,.xls,.zip,.webp,.bmp,.tiff,.gif" />
 
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button 
-                    variant="outline" 
-                    size="icon" 
-                    onClick={toggleResponseMode} 
-                    className={`transition-all ${responseMode === 'deep' ? 'bg-primary/20 border-primary shadow-lg shadow-primary/20' : 'opacity-60'}`}
-                  >
-                    {responseMode === 'short' ? <Zap className="h-4 w-4" /> : <BookOpen className="h-4 w-4" />}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>{responseMode === 'short' ? 'Short Answers (1-7 lines)' : 'Detailed Answers'}</TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button 
+                  variant="outline" 
+                  size="icon" 
+                  className={`transition-all relative ${
+                    responseMode === 'extreme' 
+                      ? 'bg-orange-500/20 border-orange-500 shadow-lg shadow-orange-500/30' 
+                      : responseMode === 'deep' 
+                        ? 'bg-primary/20 border-primary shadow-lg shadow-primary/20' 
+                        : 'opacity-60'
+                  }`}
+                >
+                  {responseMode === 'short' && <Zap className="h-4 w-4" />}
+                  {responseMode === 'deep' && <BookOpen className="h-4 w-4" />}
+                  {responseMode === 'extreme' && <Flame className="h-4 w-4 text-orange-500" />}
+                  <ChevronDown className="h-2.5 w-2.5 absolute -bottom-0.5 -right-0.5 opacity-70" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-56">
+                <DropdownMenuItem 
+                  onClick={() => handleResponseModeChange('short')}
+                  className={`gap-3 ${responseMode === 'short' ? 'bg-primary/10' : ''}`}
+                >
+                  <Zap className="h-4 w-4" />
+                  <div className="flex flex-col">
+                    <span className="font-medium">Short Mode</span>
+                    <span className="text-xs text-muted-foreground">Brief answers (1-7 lines)</span>
+                  </div>
+                </DropdownMenuItem>
+                <DropdownMenuItem 
+                  onClick={() => handleResponseModeChange('deep')}
+                  className={`gap-3 ${responseMode === 'deep' ? 'bg-primary/10' : ''}`}
+                >
+                  <BookOpen className="h-4 w-4" />
+                  <div className="flex flex-col">
+                    <span className="font-medium">Deep Mode</span>
+                    <span className="text-xs text-muted-foreground">Detailed & comprehensive</span>
+                  </div>
+                </DropdownMenuItem>
+                <DropdownMenuItem 
+                  onClick={() => handleResponseModeChange('extreme')}
+                  className={`gap-3 ${responseMode === 'extreme' ? 'bg-orange-500/10' : ''}`}
+                >
+                  <Flame className="h-4 w-4 text-orange-500" />
+                  <div className="flex flex-col">
+                    <span className="font-medium text-orange-500">Extreme Deep Mode</span>
+                    <span className="text-xs text-muted-foreground">3,500-4,500 words, 12 sections</span>
+                  </div>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
 
           <Textarea 

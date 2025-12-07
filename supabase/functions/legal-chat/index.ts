@@ -136,6 +136,59 @@ serve(async (req) => {
 - Follow the full legal answer structure
 - Stream in natural paragraphs (5-7 lines each)
 - ALWAYS end with detailed সারমর্ম (Bangla Summary)`,
+      extreme: `RESPONSE LENGTH: EXTREME DEEP MODE
+Generate a highly detailed, advanced, long-form response with a MINIMUM of 3,500 words and MAXIMUM of 4,500 words.
+
+MANDATORY STRUCTURE - Divide the answer into these 12 labeled sections:
+
+**Section 1: Definition and Introduction**
+Provide comprehensive definitions and introduce the topic thoroughly.
+
+**Section 2: Historical Background or Origin**
+Cover the history, evolution, and origin of the topic (if applicable).
+
+**Section 3: Core Concepts and Explanation**
+Deep dive into the fundamental concepts with clear explanations.
+
+**Section 4: Step-by-Step Detailed Breakdown**
+Break down the topic into granular steps or components.
+
+**Section 5: Real-Life Example(s)**
+Provide at least 2-3 practical, relatable examples.
+
+**Section 6: Case Studies**
+For legal topics: Include specific sections, acts, rules, citations, and relevant legal reasoning.
+Include at least one real case reference with citation.
+
+**Section 7: Practical Applications**
+Explain how this applies in real-world scenarios and daily practice.
+
+**Section 8: Advantages and Disadvantages**
+Balanced analysis of pros and cons (if applicable).
+
+**Section 9: Comparison**
+Compare with related concepts, alternatives, or jurisdictions (only if relevant).
+
+**Section 10: Common Mistakes, Misconceptions, and Clarifications**
+Address frequent errors and clear up misunderstandings.
+
+**Section 11: Expert Insights or Advanced Notes**
+Provide advanced perspectives, scholarly views, or professional insights.
+
+**Section 12: Summary and Key Takeaways**
+Comprehensive summary with bullet points of main learnings.
+
+FORMAT REQUIREMENTS:
+- Use bullet points, tables, numbering, and short paragraphs
+- Professional tone, academic style, factual accuracy
+- NO repetition or meaningless filler text
+- Every section must be deeply informative and logically connected
+- For legal topics: Include law names, section numbers, jurisdiction, and year
+- Include at least one real case reference if possible
+
+FINAL OUTPUT MUST END WITH:
+1. "Word Count: (approximate number here)"
+2. "One-Paragraph Summary: (brief summary in Bangla - সারমর্ম)"`,
     };
 
     // Fetch user's uploaded document knowledge base
