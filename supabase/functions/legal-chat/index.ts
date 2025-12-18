@@ -264,7 +264,7 @@ IMPORTANT: Prioritize information from uploaded documents and Bangladesh laws da
           ...messages,
         ],
         stream: true,
-        max_tokens: 32768,
+        max_tokens: 12000,
       }),
     });
 
