@@ -104,13 +104,13 @@ serve(async (req) => {
   try {
     const { messages, personality, language, responseMode, userId } = await req.json();
 
-    // Use OpenRouter with Xiaomi MiMo model (free tier)
-    const OPENROUTER_API_KEY = Deno.env.get('OPENROUTER_API_KEY');
+    // Use Lovable AI Gateway (free, no API key needed from user)
+    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
     const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 
-    if (!OPENROUTER_API_KEY) {
-      throw new Error('OPENROUTER_API_KEY not configured');
+    if (!LOVABLE_API_KEY) {
+      throw new Error('LOVABLE_API_KEY not configured');
     }
 
     const trimMessages = (
@@ -364,17 +364,15 @@ IMPORTANT: Prioritize information from uploaded documents and Bangladesh laws da
       extreme: 8000,
     };
 
-    // Use OpenRouter API with Xiaomi MiMo model
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    // Use Lovable AI Gateway (free, automatically configured)
+    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
         'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://jurismind.app',
-        'X-Title': 'JurisMind Legal AI',
       },
       body: JSON.stringify({
-        model: 'xiaomi/mimo-v2-flash:free',
+        model: 'google/gemini-2.5-flash',
         messages: [
           { role: 'system', content: systemPrompt },
           ...safeMessages,
@@ -386,7 +384,7 @@ IMPORTANT: Prioritize information from uploaded documents and Bangladesh laws da
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('OpenRouter API error:', response.status, errorText);
+      console.error('Lovable AI error:', response.status, errorText);
 
       let friendly = 'AI request failed.';
       try {
@@ -404,7 +402,7 @@ IMPORTANT: Prioritize information from uploaded documents and Bangladesh laws da
         });
       }
       if (response.status === 402) {
-        return new Response(JSON.stringify({ error: 'API credits exhausted.' }), {
+        return new Response(JSON.stringify({ error: 'Payment required. Please add credits to your Lovable workspace.' }), {
           status: 402,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
