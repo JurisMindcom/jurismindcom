@@ -104,14 +104,9 @@ serve(async (req) => {
   try {
     const { messages, personality, language, responseMode, userId } = await req.json();
 
-    // Use OpenRouter with Gemini model
-    const OPENROUTER_API_KEY = Deno.env.get('OPENROUTER_API_KEY');
+    // Use Lovable AI Gateway
     const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-
-    if (!OPENROUTER_API_KEY) {
-      throw new Error('OPENROUTER_API_KEY not configured');
-    }
 
     const trimMessages = (
       input: Array<{ role: string; content: string }>,
@@ -364,17 +359,21 @@ IMPORTANT: Prioritize information from uploaded documents and Bangladesh laws da
       extreme: 8000,
     };
 
-    // Primary: OpenRouter with completely FREE model (no credits required)
-    let response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    // Use Lovable AI Gateway with google/gemini-2.5-flash
+    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
+    
+    if (!LOVABLE_API_KEY) {
+      throw new Error('LOVABLE_API_KEY not configured');
+    }
+
+    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+        Authorization: `Bearer ${LOVABLE_API_KEY}`,
         'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://jurismind.app',
-        'X-Title': 'JurisMind Legal AI',
       },
       body: JSON.stringify({
-        model: 'google/gemma-3-1b-it:free',
+        model: 'google/gemini-2.5-flash',
         messages: [
           { role: 'system', content: systemPrompt },
           ...safeMessages,
@@ -383,29 +382,6 @@ IMPORTANT: Prioritize information from uploaded documents and Bangladesh laws da
         max_tokens: maxTokensByMode[responseMode] ?? 4000,
       }),
     });
-
-    // Fallback: Lovable AI Gateway (no external key management)
-    if (response.status === 402) {
-      const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
-      if (LOVABLE_API_KEY) {
-        console.warn('OpenRouter 402 (insufficient credits). Falling back to Lovable AI Gateway.');
-        response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${LOVABLE_API_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: 'google/gemini-2.5-flash',
-            messages: [
-              { role: 'system', content: systemPrompt },
-              ...safeMessages,
-            ],
-            stream: true,
-          }),
-        });
-      }
-    }
 
     if (!response.ok) {
       const errorText = await response.text();
