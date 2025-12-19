@@ -383,35 +383,41 @@ IMPORTANT: Prioritize information from uploaded documents and Bangladesh laws da
       extreme: 8000,
     };
 
-    // Use OpenRouter with free model (no credits needed)
-    const OPENROUTER_API_KEY = Deno.env.get('OPENROUTER_API_KEY');
+    // Use Google Gemini 2.5 Flash Lite
+    const GOOGLE_API_KEY = Deno.env.get('GOOGLE_API_KEY');
     
-    if (!OPENROUTER_API_KEY) {
-      throw new Error('OPENROUTER_API_KEY not configured');
+    if (!GOOGLE_API_KEY) {
+      throw new Error('GOOGLE_API_KEY not configured');
     }
 
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://jurismind.app',
-        'X-Title': 'JurisMind Legal AI',
-      },
-      body: JSON.stringify({
-        model: 'meta-llama/llama-3.3-70b-instruct:free',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          ...safeMessages,
-        ],
-        stream: true,
-        max_tokens: maxTokensByMode[responseMode] ?? 4000,
-      }),
-    });
+    // Convert messages to Gemini format
+    const geminiContents = safeMessages.map(msg => ({
+      role: msg.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: msg.content }]
+    }));
+
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:streamGenerateContent?alt=sse&key=${GOOGLE_API_KEY}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          contents: geminiContents,
+          systemInstruction: {
+            parts: [{ text: systemPrompt }]
+          },
+          generationConfig: {
+            maxOutputTokens: maxTokensByMode[responseMode] ?? 4000,
+          },
+        }),
+      }
+    );
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('AI provider error:', response.status, errorText);
+      console.error('Google Gemini error:', response.status, errorText);
 
       let friendly = 'AI request failed.';
       try {
@@ -429,26 +435,65 @@ IMPORTANT: Prioritize information from uploaded documents and Bangladesh laws da
         });
       }
 
-      if (response.status === 402) {
-        // At this point: either OpenRouter still failed, or the fallback gateway is out of credits.
-        const msg = friendly.toLowerCase().includes('credit')
-          ? friendly
-          : 'Payment required (insufficient credits). Please add credits to your AI provider account.';
-
-        return new Response(JSON.stringify({ error: msg }), {
-          status: 402,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-
       return new Response(JSON.stringify({ error: friendly }), {
         status: response.status,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    // OpenRouter returns OpenAI-compatible SSE format, stream directly
-    return new Response(response.body, {
+    // Transform Gemini SSE to OpenAI-compatible format for the frontend
+    const { readable, writable } = new TransformStream();
+    const writer = writable.getWriter();
+    const encoder = new TextEncoder();
+
+    (async () => {
+      const reader = response.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const jsonStr = line.slice(6).trim();
+              if (jsonStr === '[DONE]') continue;
+              
+              try {
+                const geminiData = JSON.parse(jsonStr);
+                const text = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+                
+                if (text) {
+                  // Convert to OpenAI format
+                  const openAIChunk = {
+                    choices: [{
+                      delta: { content: text },
+                      index: 0
+                    }]
+                  };
+                  await writer.write(encoder.encode(`data: ${JSON.stringify(openAIChunk)}\n\n`));
+                }
+              } catch {
+                // Skip malformed JSON
+              }
+            }
+          }
+        }
+        await writer.write(encoder.encode('data: [DONE]\n\n'));
+      } catch (e) {
+        console.error('Stream processing error:', e);
+      } finally {
+        await writer.close();
+      }
+    })();
+
+    return new Response(readable, {
       headers: { 
         ...corsHeaders, 
         'Content-Type': 'text/event-stream',
