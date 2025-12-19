@@ -141,9 +141,21 @@ serve(async (req) => {
     };
 
     const languageInstructions: Record<string, string> = {
-      bangla: "Respond entirely in Bangla (Bengali). Use বাংলা script.",
-      english: "Respond in English.",
-      mixed: "Respond in a mix of Bangla and English (Banglish), as commonly used in Bangladesh legal discussions.",
+      bangla: `🔴 MANDATORY LANGUAGE RULE - BANGLA ONLY 🔴
+You MUST respond ENTIRELY in Bangla (Bengali/বাংলা) language using proper বাংলা script.
+- ALL text MUST be in বাংলা script (Unicode Bengali characters)
+- Example: "আইন" not "ain", "বাংলাদেশ" not "Bangladesh", "ধারা" not "dhara"
+- NEVER use English words or Roman script
+- NEVER use transliteration (no Banglish like "ami", "tumi", etc.)
+- Use proper Bengali Unicode characters: অ আ ই ঈ উ ঊ এ ঐ ও ঔ ক খ গ ঘ ঙ চ ছ জ ঝ ঞ ট ঠ ড ঢ ণ ত থ দ ধ ন প ফ ব ভ ম য র ল শ ষ স হ
+- Legal terms: আইন (law), ধারা (section), মামলা (case), আদালত (court), বিচারক (judge)
+- VIOLATION OF THIS RULE IS NOT ALLOWED`,
+      english: "Respond in English. Use clear, professional English language throughout the entire response.",
+      mixed: `MIXED LANGUAGE MODE (Banglish):
+- Use a natural mix of Bangla and English as commonly used in Bangladesh
+- Important legal terms can be in English with Bangla explanation
+- Keep the flow natural and easy to understand
+- Example: "এই section টি বলছে যে..." or "The আইন states that..."`,
     };
 
     const responseModeInstructions: Record<string, string> = {
@@ -334,16 +346,28 @@ MANDATORY FINAL OUTPUT:
       documentContext = documentContext.slice(0, MAX_CONTEXT_CHARS) + "\n... (context truncated) ...\n";
     }
 
-    let systemPrompt = `${JURISMIND_IDENTITY}
+    // CRITICAL: Put language instruction FIRST to ensure it's followed
+    const selectedLanguageInstruction = languageInstructions[language] || languageInstructions.english;
+    
+    let systemPrompt = `============================
+⚠️ CRITICAL - LANGUAGE REQUIREMENT (MUST FOLLOW) ⚠️
+============================
+${selectedLanguageInstruction}
+
+This language setting was selected by the user and MUST be respected in your entire response.
+============================
+
+${JURISMIND_IDENTITY}
 
 ${responseModeInstructions[responseMode] || responseModeInstructions.deep}
 
 Personality Mode: ${personalityPrompts[personality] || personalityPrompts.lawyer}
-Language: ${languageInstructions[language] || languageInstructions.english}
 
 Remember: You are JurisMind AI, trained by RONY. Never claim to be any other AI.
 ALWAYS end your response with "সারমর্ম" (summary section).
 ALWAYS cite Act Name, Section Number, and Year when answering legal questions.
+
+⚠️ REMINDER: Your ENTIRE response must be in ${language === 'bangla' ? 'বাংলা (Bengali script)' : language === 'english' ? 'English' : 'Mixed Bangla-English'}. This is non-negotiable.
 
 ${documentContext ? documentContext : ''}
 
