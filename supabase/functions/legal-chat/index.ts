@@ -157,65 +157,136 @@ serve(async (req) => {
 - No lengthy explanations, just essential answer
 - Still include Act/Section/Year if legal question
 - End with one-line সারমর্ম`,
-      deep: `RESPONSE LENGTH: DEEP MODE
-- Provide comprehensive, detailed response with thorough analysis
-- Include relevant examples, applicable laws, and context
-- Follow the full legal answer structure
-- Stream in natural paragraphs (5-7 lines each)
-- ALWAYS end with detailed সারমর্ম (Bangla Summary)`,
-      extreme: `RESPONSE LENGTH: EXTREME DEEP MODE
+      deep: `RESPONSE LENGTH: DEEP MODE (COMPREHENSIVE ANSWER)
+প্রতিটি প্রশ্নের জন্য নিম্নলিখিত কাঠামো অনুসরণ করুন:
+
+**১. সংজ্ঞা (Definition)**
+- বিষয়টির পূর্ণাঙ্গ সংজ্ঞা প্রদান করুন
+- আইনি ও সাধারণ দৃষ্টিকোণ থেকে ব্যাখ্যা করুন
+
+**২. বিস্তারিত বর্ণনা ও ব্যাখ্যা (Detailed Description)**
+- বিষয়ের অভ্যন্তরীণ সংশ্লিষ্ট সকল তথ্য উল্লেখ করুন
+- প্রতিটি দিক সুন্দরভাবে প্যারায় প্যারায় সাজিয়ে উপস্থাপন করুন
+
+**৩. প্রাসঙ্গিক আইন ও ধারা (Relevant Laws & Sections)**
+- সংশ্লিষ্ট আইনের নাম, ধারা নম্বর, সাল উল্লেখ করুন
+- প্রতিটি ধারার মূল বিষয়বস্তু ব্যাখ্যা করুন
+
+**৪. বাংলাদেশের প্রেক্ষাপট (Bangladesh Context)**
+- বাংলাদেশের আইনি কাঠামোতে এর প্রয়োগ ব্যাখ্যা করুন
+- প্রাসঙ্গিক মামলার উদাহরণ দিন (যদি থাকে)
+
+**৫. কেস আইন ও নজির (Case Law & Precedents)**
+- বাংলাদেশের প্রাসঙ্গিক মামলার রেফারেন্স দিন
+- উদাহরণ: "State vs XYZ (Year) DLR/BLD citation"
+- মামলার সিদ্ধান্ত ও এর প্রভাব ব্যাখ্যা করুন
+
+**৬. ব্যতিক্রম ও সীমাবদ্ধতা (Exceptions & Limitations)**
+- আইনের ব্যতিক্রম ক্ষেত্রসমূহ উল্লেখ করুন
+- প্রযোজ্যতার সীমাবদ্ধতা ব্যাখ্যা করুন
+
+**৭. ব্যবহারিক প্রয়োগ (Practical Application)**
+- বাস্তব জীবনে কীভাবে প্রয়োগ হয় তা ব্যাখ্যা করুন
+- প্রাসঙ্গিক উদাহরণ দিন
+
+**৮. সারমর্ম (Summary)**
+- সম্পূর্ণ উত্তরের সংক্ষিপ্ত সার উপস্থাপন করুন
+
+FORMAT REQUIREMENTS:
+- প্রতিটি অংশ সুন্দরভাবে সাজান
+- তথ্যপূর্ণ ও বিস্তারিত উত্তর দিন
+- যতটা সম্ভব বিস্তারিত তথ্য প্রদান করুন
+- Stream in natural paragraphs (5-7 lines each)`,
+      extreme: `RESPONSE LENGTH: EXTREME DEEP MODE (সর্বোচ্চ বিস্তারিত উত্তর)
 Generate a highly detailed, advanced, long-form response with a MINIMUM of 3,500 words and MAXIMUM of 4,500 words.
 
-MANDATORY STRUCTURE - Divide the answer into these 12 labeled sections:
+MANDATORY STRUCTURE - Divide the answer into these 15 labeled sections:
 
-**Section 1: Definition and Introduction**
-Provide comprehensive definitions and introduce the topic thoroughly.
+**পর্ব ১: সংজ্ঞা ও পরিচিতি (Definition and Introduction)**
+- বিষয়টির পূর্ণাঙ্গ সংজ্ঞা প্রদান করুন
+- আইনি, একাডেমিক ও সাধারণ দৃষ্টিকোণ থেকে সংজ্ঞা দিন
+- বিভিন্ন পণ্ডিত ও আইনবিদদের সংজ্ঞা উল্লেখ করুন
 
-**Section 2: Historical Background or Origin**
-Cover the history, evolution, and origin of the topic (if applicable).
+**পর্ব ২: ঐতিহাসিক পটভূমি (Historical Background)**
+- বিষয়টির উৎপত্তি ও বিকাশের ইতিহাস
+- বাংলাদেশে এর প্রচলনের ইতিহাস
+- আইনের বিবর্তন ও সংশোধনীসমূহ
 
-**Section 3: Core Concepts and Explanation**
-Deep dive into the fundamental concepts with clear explanations.
+**পর্ব ৩: মূল ধারণা ও বিস্তারিত ব্যাখ্যা (Core Concepts)**
+- অভ্যন্তরীণ সংশ্লিষ্ট সকল তথ্য
+- প্রতিটি উপাদান সুন্দরভাবে ব্যাখ্যা করুন
+- গভীর বিশ্লেষণ প্রদান করুন
 
-**Section 4: Step-by-Step Detailed Breakdown**
-Break down the topic into granular steps or components.
+**পর্ব ৪: প্রাসঙ্গিক আইন ও ধারা (Relevant Acts & Sections)**
+- সংশ্লিষ্ট সকল আইনের নাম, সাল, ধারা নম্বর
+- প্রতিটি ধারার পূর্ণ বিষয়বস্তু উদ্ধৃত করুন
+- ধারাগুলোর ব্যাখ্যা ও বিশ্লেষণ
 
-**Section 5: Real-Life Example(s)**
-Provide at least 2-3 practical, relatable examples.
+**পর্ব ৫: বাংলাদেশের আইনি কেসের উদাহরণ (Bangladesh Case Examples)**
+- কমপক্ষে ৩-৫টি প্রাসঙ্গিক মামলার উল্লেখ করুন
+- মামলার নাম, সাল, সাইটেশন (DLR/BLD/BCR)
+- মামলার সংক্ষিপ্ত তথ্য ও রায়
+- এই মামলাগুলোর আইনি গুরুত্ব
 
-**Section 6: Case Studies**
-For legal topics: Include specific sections, acts, rules, citations, and relevant legal reasoning.
-Include at least one real case reference with citation.
+**পর্ব ৬: ধাপে ধাপে বিশ্লেষণ (Step-by-Step Analysis)**
+- প্রক্রিয়াগত দিকসমূহ
+- কীভাবে আবেদন/প্রয়োগ করতে হয়
+- প্রয়োজনীয় কাগজপত্র ও পদ্ধতি
 
-**Section 7: Practical Applications**
-Explain how this applies in real-world scenarios and daily practice.
+**পর্ব ৭: ব্যতিক্রম ও সীমাবদ্ধতা (Exceptions & Limitations)**
+- আইনের ব্যতিক্রম ক্ষেত্রসমূহ
+- প্রযোজ্যতার সীমাবদ্ধতা
+- যেসব ক্ষেত্রে প্রযোজ্য নয়
 
-**Section 8: Advantages and Disadvantages**
-Balanced analysis of pros and cons (if applicable).
+**পর্ব ৮: ব্যবহারিক প্রয়োগ (Practical Applications)**
+- বাস্তব জীবনে প্রয়োগের উদাহরণ
+- সাধারণ মানুষের জন্য প্রাসঙ্গিকতা
+- পেশাদার প্রয়োগ
 
-**Section 9: Comparison**
-Compare with related concepts, alternatives, or jurisdictions (only if relevant).
+**পর্ব ৯: সুবিধা ও অসুবিধা (Advantages & Disadvantages)**
+- আইনের সুবিধাসমূহ
+- সমালোচনা ও অসুবিধা
+- সংস্কারের সুপারিশ
 
-**Section 10: Common Mistakes, Misconceptions, and Clarifications**
-Address frequent errors and clear up misunderstandings.
+**পর্ব ১০: তুলনামূলক বিশ্লেষণ (Comparative Analysis)**
+- অন্যান্য দেশের আইনের সাথে তুলনা
+- সংশ্লিষ্ট বিষয়ের সাথে পার্থক্য
+- আন্তর্জাতিক মানদণ্ড
 
-**Section 11: Expert Insights or Advanced Notes**
-Provide advanced perspectives, scholarly views, or professional insights.
+**পর্ব ১১: সাধারণ ভুল ধারণা ও স্পষ্টীকরণ (Common Misconceptions)**
+- জনসাধারণের মধ্যে প্রচলিত ভুল ধারণা
+- সঠিক তথ্য ও স্পষ্টীকরণ
+- প্রায়শই জিজ্ঞাসিত প্রশ্নের উত্তর
 
-**Section 12: Summary and Key Takeaways**
-Comprehensive summary with bullet points of main learnings.
+**পর্ব ১২: বিশেষজ্ঞ মতামত ও উন্নত বিশ্লেষণ (Expert Insights)**
+- আইনবিদ ও বিশেষজ্ঞদের মতামত
+- একাডেমিক দৃষ্টিভঙ্গি
+- উন্নত তত্ত্ব ও বিশ্লেষণ
+
+**পর্ব ১৩: সাম্প্রতিক উন্নয়ন (Recent Developments)**
+- আইনের সাম্প্রতিক সংশোধনী
+- নতুন রায় ও নজির
+- ভবিষ্যৎ সম্ভাবনা
+
+**পর্ব ১৪: গুরুত্বপূর্ণ পয়েন্ট (Key Takeaways)**
+- মূল বিষয়গুলোর বুলেট পয়েন্ট
+- মনে রাখার জন্য গুরুত্বপূর্ণ তথ্য
+
+**পর্ব ১৫: সারমর্ম (Summary)**
+- সম্পূর্ণ উত্তরের বিস্তারিত সংক্ষিপ্তসার
+- এক প্যারাগ্রাফে মূল বিষয়বস্তু
 
 FORMAT REQUIREMENTS:
 - Use bullet points, tables, numbering, and short paragraphs
 - Professional tone, academic style, factual accuracy
 - NO repetition or meaningless filler text
-- Every section must be deeply informative and logically connected
-- For legal topics: Include law names, section numbers, jurisdiction, and year
-- Include at least one real case reference if possible
+- Every section must be deeply informative
+- Include law names, section numbers, jurisdiction, and year
+- Include real case references with proper citations
 
 FINAL OUTPUT MUST END WITH:
 1. "Word Count: (approximate number here)"
-2. "One-Paragraph Summary: (brief summary in Bangla - সারমর্ম)"`,
+2. "সারমর্ম: (detailed summary in Bangla)"`,
     };
 
     // Fetch user's uploaded document knowledge base

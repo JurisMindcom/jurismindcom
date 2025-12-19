@@ -69,19 +69,38 @@ const MessageItem = memo(({ id, role, content, created_at, index, copiedId, onCo
     );
   }
 
-  // User message: Right-aligned bubble style
+  // User message: Right-aligned bubble style with copy button
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: Math.min(index * 0.02, 0.2) }}
-      className="flex justify-end gap-3"
+      className="flex justify-end gap-3 group"
     >
-      <div className="max-w-[80%] p-4 rounded-2xl bg-gradient-to-br from-primary to-primary-glow text-primary-foreground">
-        <p className="text-sm whitespace-pre-wrap break-words">{content}</p>
-        <p className="text-xs opacity-70 mt-2">
-          {new Date(created_at).toLocaleTimeString()}
-        </p>
+      <div className="max-w-[80%]">
+        <div className="p-4 rounded-2xl bg-gradient-to-br from-primary to-primary-glow text-primary-foreground">
+          <p className="text-sm whitespace-pre-wrap break-words">{content}</p>
+        </div>
+        <div className="flex items-center justify-end gap-3 mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
+          <span className="text-xs text-muted-foreground">
+            {new Date(created_at).toLocaleTimeString()}
+          </span>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button 
+                  size="icon" 
+                  variant="ghost" 
+                  className="h-7 w-7"
+                  onClick={() => onCopy(content, id)}
+                >
+                  {copiedId === id ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Copy</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
       </div>
       
       <div className="p-2 rounded-full bg-primary/20 h-fit shrink-0">
