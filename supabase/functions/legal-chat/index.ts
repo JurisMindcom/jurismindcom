@@ -329,20 +329,36 @@ IMPORTANT: Prioritize information from uploaded documents and Bangladesh laws da
     if (!response.ok) {
       const errorText = await response.text();
       console.error('Gemini API error:', response.status, errorText);
-      
+
+      // Best-effort extraction of a useful error message
+      let friendly = 'Gemini API request failed.';
+      try {
+        const parsed = JSON.parse(errorText);
+        const msg = parsed?.error?.message;
+        if (typeof msg === 'string' && msg.trim()) friendly = msg;
+      } catch {
+        // keep default
+      }
+
       if (response.status === 429) {
-        return new Response(
-          JSON.stringify({ error: 'Rate limit exceeded. Please try again later.' }),
-          { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+        return new Response(JSON.stringify({ error: 'Rate limit exceeded. Please try again later.' }), {
+          status: 429,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
       }
-      if (response.status === 400) {
-        return new Response(
-          JSON.stringify({ error: 'Invalid request to Gemini API.' }),
-          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+
+      // Most common: invalid/restricted API key or API not enabled
+      if (response.status === 400 || response.status === 401 || response.status === 403) {
+        return new Response(JSON.stringify({ error: friendly }), {
+          status: response.status,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
       }
-      throw new Error(`Gemini API error: ${response.status}`);
+
+      return new Response(JSON.stringify({ error: friendly }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
     // Transform Gemini SSE format to OpenAI-compatible format for frontend
