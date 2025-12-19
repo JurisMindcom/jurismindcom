@@ -374,7 +374,7 @@ IMPORTANT: Prioritize information from uploaded documents and Bangladesh laws da
         'X-Title': 'JurisMind Legal AI',
       },
       body: JSON.stringify({
-        model: 'xiaomi/mimo-v2-flash:free',
+        model: 'kwaipilot/kat-coder-pro:free',
         messages: [
           { role: 'system', content: systemPrompt },
           ...safeMessages,
