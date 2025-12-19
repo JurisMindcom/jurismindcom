@@ -258,7 +258,15 @@ FINAL OUTPUT MUST END WITH:
       }
     }
 
-    const systemPrompt = `${JURISMIND_IDENTITY}
+    // Hard cap to prevent prompt-token explosions (can cause 402 on OpenRouter)
+    const MAX_CONTEXT_CHARS = 8000;
+    const MAX_SYSTEM_PROMPT_CHARS = 30000;
+
+    if (documentContext.length > MAX_CONTEXT_CHARS) {
+      documentContext = documentContext.slice(0, MAX_CONTEXT_CHARS) + "\n... (context truncated) ...\n";
+    }
+
+    let systemPrompt = `${JURISMIND_IDENTITY}
 
 ${responseModeInstructions[responseMode] || responseModeInstructions.deep}
 
@@ -272,6 +280,10 @@ ALWAYS cite Act Name, Section Number, and Year when answering legal questions.
 ${documentContext ? documentContext : ''}
 
 IMPORTANT: Prioritize information from uploaded documents and Bangladesh laws database. Always cite the source (document name or law section with year) when using this information.`;
+
+    if (systemPrompt.length > MAX_SYSTEM_PROMPT_CHARS) {
+      systemPrompt = systemPrompt.slice(0, MAX_SYSTEM_PROMPT_CHARS) + "\n... (system prompt truncated) ...\n";
+    }
 
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
