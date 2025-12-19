@@ -111,6 +111,31 @@ serve(async (req) => {
       throw new Error('OPENROUTER_API_KEY not configured');
     }
 
+    const trimMessages = (
+      input: Array<{ role: string; content: string }>,
+      maxChars = 24000,
+      maxMessages = 20
+    ) => {
+      const arr = Array.isArray(input) ? input : [];
+      const tail = arr.slice(-maxMessages);
+      let total = 0;
+      const kept: Array<{ role: string; content: string }> = [];
+
+      for (let i = tail.length - 1; i >= 0; i--) {
+        const m = tail[i];
+        const c = typeof m?.content === 'string' ? m.content : '';
+        const r = typeof m?.role === 'string' ? m.role : 'user';
+        const nextTotal = total + c.length;
+        if (kept.length > 0 && nextTotal > maxChars) break;
+        total = nextTotal;
+        kept.unshift({ role: r, content: c });
+      }
+
+      return kept;
+    };
+
+    const safeMessages = trimMessages(messages, 24000, 20);
+
     const personalityPrompts: Record<string, string> = {
       lawyer: "Respond as a professional lawyer would, using formal legal terminology and citing relevant laws when applicable.",
       judge: "Respond as an experienced judge would, providing balanced analysis of legal issues from a judicial perspective.",
@@ -215,8 +240,7 @@ FINAL OUTPUT MUST END WITH:
           });
         }
 
-        // Search Bangladesh Laws database for relevant context
-        const lastUserMessage = messages[messages.length - 1]?.content || '';
+        const lastUserMessage = safeMessages[safeMessages.length - 1]?.content || '';
         const { data: laws } = await supabase
           .from('bangladesh_laws')
           .select('law_title, section_number, section_content, year, act_number')
@@ -261,7 +285,7 @@ IMPORTANT: Prioritize information from uploaded documents and Bangladesh laws da
         model: 'google/gemini-2.5-flash',
         messages: [
           { role: 'system', content: systemPrompt },
-          ...messages,
+          ...safeMessages,
         ],
         stream: true,
         max_tokens: 8000,
