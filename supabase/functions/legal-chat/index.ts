@@ -303,7 +303,7 @@ IMPORTANT: Prioritize information from uploaded documents and Bangladesh laws da
         'X-Title': 'JurisMind Legal AI',
       },
       body: JSON.stringify({
-        model: 'xiaomi/mimo-vl-7b-flash:free',
+        model: 'xiaomi/mimo-v2-flash:free',
         messages: [
           { role: 'system', content: systemPrompt },
           ...safeMessages,
