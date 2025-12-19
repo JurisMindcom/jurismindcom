@@ -152,12 +152,20 @@ serve(async (req) => {
     };
 
     const responseModeInstructions: Record<string, string> = {
-      short: `RESPONSE LENGTH: SHORT MODE
-- Keep response brief: 1-7 lines maximum
-- No lengthy explanations, just essential answer
+      short: `RESPONSE LENGTH: SHORT MODE ⚡
+- Length: 1-7 concise lines total
+- Style: Direct, factual, minimal
+- No headings, no examples
 - Still include Act/Section/Year if legal question
-- End with one-line সারমর্ম`,
-      deep: `RESPONSE LENGTH: DEEP MODE (COMPREHENSIVE ANSWER)
+- Summary style: ONE-LINE সারমর্ম only
+- MANDATORY: End response with **সারমর্ম** (one line summary)
+- MANDATORY: End with **Total Word Count:** <exact number>`,
+      deep: `RESPONSE LENGTH: DEEP MODE 📘 (COMPREHENSIVE ANSWER)
+- Length: Detailed but controlled
+- Use headings and subheadings
+- Logical flow: definition → explanation → analysis
+- Professional academic tone
+
 প্রতিটি প্রশ্নের জন্য নিম্নলিখিত কাঠামো অনুসরণ করুন:
 
 **১. সংজ্ঞা (Definition)**
@@ -190,17 +198,19 @@ serve(async (req) => {
 - প্রাসঙ্গিক উদাহরণ দিন
 
 **৮. সারমর্ম (Summary)**
-- সম্পূর্ণ উত্তরের সংক্ষিপ্ত সার উপস্থাপন করুন
+- সম্পূর্ণ উত্তরের সংক্ষিপ্ত সার উপস্থাপন করুন (2-4 lines)
 
 FORMAT REQUIREMENTS:
 - প্রতিটি অংশ সুন্দরভাবে সাজান
 - তথ্যপূর্ণ ও বিস্তারিত উত্তর দিন
 - যতটা সম্ভব বিস্তারিত তথ্য প্রদান করুন
-- Stream in natural paragraphs (5-7 lines each)`,
-      extreme: `RESPONSE LENGTH: EXTREME DEEP MODE (সর্বোচ্চ বিস্তারিত উত্তর)
-Generate a highly detailed, advanced, long-form response with a MINIMUM of 3,500 words and MAXIMUM of 4,500 words.
+- Stream in natural paragraphs (5-7 lines each)
+- MANDATORY: End response with **সারমর্ম** (2-4 lines summary)
+- MANDATORY: End with **Total Word Count:** <exact number>`,
+      extreme: `RESPONSE LENGTH: EXTREME DEEP MODE 🔥 (সর্বোচ্চ বিস্তারিত উত্তর)
+Generate a highly detailed, advanced, long-form response with a MINIMUM of 3,500 words and MAXIMUM of 4,500 words STRICT.
 
-MANDATORY STRUCTURE - Divide the answer into these 15 labeled sections:
+MANDATORY STRUCTURE - Divide the answer into EXACTLY 12 clearly numbered sections:
 
 **পর্ব ১: সংজ্ঞা ও পরিচিতি (Definition and Introduction)**
 - বিষয়টির পূর্ণাঙ্গ সংজ্ঞা প্রদান করুন
@@ -253,30 +263,20 @@ MANDATORY STRUCTURE - Divide the answer into these 15 labeled sections:
 - সংশ্লিষ্ট বিষয়ের সাথে পার্থক্য
 - আন্তর্জাতিক মানদণ্ড
 
-**পর্ব ১১: সাধারণ ভুল ধারণা ও স্পষ্টীকরণ (Common Misconceptions)**
-- জনসাধারণের মধ্যে প্রচলিত ভুল ধারণা
-- সঠিক তথ্য ও স্পষ্টীকরণ
-- প্রায়শই জিজ্ঞাসিত প্রশ্নের উত্তর
-
-**পর্ব ১২: বিশেষজ্ঞ মতামত ও উন্নত বিশ্লেষণ (Expert Insights)**
-- আইনবিদ ও বিশেষজ্ঞদের মতামত
-- একাডেমিক দৃষ্টিভঙ্গি
-- উন্নত তত্ত্ব ও বিশ্লেষণ
-
-**পর্ব ১৩: সাম্প্রতিক উন্নয়ন (Recent Developments)**
+**পর্ব ১১: সাম্প্রতিক উন্নয়ন ও বিশেষজ্ঞ মতামত (Recent Developments & Expert Insights)**
 - আইনের সাম্প্রতিক সংশোধনী
 - নতুন রায় ও নজির
+- আইনবিদ ও বিশেষজ্ঞদের মতামত
 - ভবিষ্যৎ সম্ভাবনা
 
-**পর্ব ১৪: গুরুত্বপূর্ণ পয়েন্ট (Key Takeaways)**
-- মূল বিষয়গুলোর বুলেট পয়েন্ট
-- মনে রাখার জন্য গুরুত্বপূর্ণ তথ্য
-
-**পর্ব ১৫: সারমর্ম (Summary)**
-- সম্পূর্ণ উত্তরের বিস্তারিত সংক্ষিপ্তসার
-- এক প্যারাগ্রাফে মূল বিষয়বস্তু
+**পর্ব ১২: সারমর্ম (Summary)**
+- সম্পূর্ণ উত্তরের বিস্তারিত সংক্ষিপ্তসার (150-250 words)
+- মূল বিষয়গুলোর সংক্ষিপ্ত পর্যালোচনা
 
 FORMAT REQUIREMENTS:
+- Each section must be comprehensive
+- Include: Definitions, context/background, technical/legal analysis, examples/case studies, advantages, limitations, counter-arguments
+- Expert-level, research-grade quality
 - Use bullet points, tables, numbering, and short paragraphs
 - Professional tone, academic style, factual accuracy
 - NO repetition or meaningless filler text
@@ -284,9 +284,9 @@ FORMAT REQUIREMENTS:
 - Include law names, section numbers, jurisdiction, and year
 - Include real case references with proper citations
 
-FINAL OUTPUT MUST END WITH:
-1. "Word Count: (approximate number here)"
-2. "সারমর্ম: (detailed summary in Bangla)"`,
+MANDATORY FINAL OUTPUT:
+1. **সারমর্ম** (150-250 words detailed summary)
+2. **Total Word Count:** <exact number counting ALL words in entire response>`,
     };
 
     // Fetch user's uploaded document knowledge base
@@ -364,7 +364,7 @@ IMPORTANT: Prioritize information from uploaded documents and Bangladesh laws da
       extreme: 8000,
     };
 
-    // Primary: OpenRouter
+    // Primary: OpenRouter with completely FREE model (no credits required)
     let response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -374,7 +374,7 @@ IMPORTANT: Prioritize information from uploaded documents and Bangladesh laws da
         'X-Title': 'JurisMind Legal AI',
       },
       body: JSON.stringify({
-        model: 'kwaipilot/kat-coder-pro:free',
+        model: 'google/gemma-3-1b-it:free',
         messages: [
           { role: 'system', content: systemPrompt },
           ...safeMessages,
