@@ -364,7 +364,7 @@ IMPORTANT: Prioritize information from uploaded documents and Bangladesh laws da
       extreme: 8000,
     };
 
-    // Use OpenRouter API with Gemini model (free tier)
+    // Use OpenRouter API with Xiaomi MiMo model (free tier)
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -374,7 +374,7 @@ IMPORTANT: Prioritize information from uploaded documents and Bangladesh laws da
         'X-Title': 'JurisMind Legal AI',
       },
       body: JSON.stringify({
-        model: 'google/gemini-2.0-flash-exp:free',
+        model: 'xiaomi/mimo-v2-flash:free',
         messages: [
           { role: 'system', content: systemPrompt },
           ...safeMessages,
