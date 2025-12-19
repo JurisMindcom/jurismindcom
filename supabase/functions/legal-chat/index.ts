@@ -285,6 +285,12 @@ IMPORTANT: Prioritize information from uploaded documents and Bangladesh laws da
       systemPrompt = systemPrompt.slice(0, MAX_SYSTEM_PROMPT_CHARS) + "\n... (system prompt truncated) ...\n";
     }
 
+    const maxTokensByMode: Record<string, number> = {
+      short: 1200,
+      deep: 4000,
+      extreme: 8000,
+    };
+
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -300,7 +306,7 @@ IMPORTANT: Prioritize information from uploaded documents and Bangladesh laws da
           ...safeMessages,
         ],
         stream: true,
-        max_tokens: 8000,
+        max_tokens: maxTokensByMode[responseMode] ?? 4000,
       }),
     });
 
