@@ -364,8 +364,8 @@ IMPORTANT: Prioritize information from uploaded documents and Bangladesh laws da
       extreme: 8000,
     };
 
-    // Use OpenRouter API with Xiaomi MiMo model (free tier)
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    // Primary: OpenRouter
+    let response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
@@ -384,14 +384,37 @@ IMPORTANT: Prioritize information from uploaded documents and Bangladesh laws da
       }),
     });
 
+    // Fallback: Lovable AI Gateway (no external key management)
+    if (response.status === 402) {
+      const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
+      if (LOVABLE_API_KEY) {
+        console.warn('OpenRouter 402 (insufficient credits). Falling back to Lovable AI Gateway.');
+        response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${LOVABLE_API_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'google/gemini-2.5-flash',
+            messages: [
+              { role: 'system', content: systemPrompt },
+              ...safeMessages,
+            ],
+            stream: true,
+          }),
+        });
+      }
+    }
+
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('OpenRouter API error:', response.status, errorText);
+      console.error('AI provider error:', response.status, errorText);
 
       let friendly = 'AI request failed.';
       try {
         const parsed = JSON.parse(errorText);
-        const msg = parsed?.error?.message;
+        const msg = parsed?.error?.message || parsed?.error;
         if (typeof msg === 'string' && msg.trim()) friendly = msg;
       } catch {
         // keep default
@@ -403,8 +426,14 @@ IMPORTANT: Prioritize information from uploaded documents and Bangladesh laws da
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
+
       if (response.status === 402) {
-        return new Response(JSON.stringify({ error: 'Payment required. Please add credits to your Lovable workspace.' }), {
+        // At this point: either OpenRouter still failed, or the fallback gateway is out of credits.
+        const msg = friendly.toLowerCase().includes('credit')
+          ? friendly
+          : 'Payment required (insufficient credits). Please add credits to your AI provider account.';
+
+        return new Response(JSON.stringify({ error: msg }), {
           status: 402,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
