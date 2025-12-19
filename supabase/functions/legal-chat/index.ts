@@ -375,7 +375,7 @@ IMPORTANT: Prioritize information from uploaded documents and Bangladesh laws da
         'X-Title': 'JurisMind Legal AI',
       },
       body: JSON.stringify({
-        model: 'google/gemma-2-9b-it:free',
+        model: 'google/gemini-2.0-flash-exp:free',
         messages: [
           { role: 'system', content: systemPrompt },
           ...safeMessages,
