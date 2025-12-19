@@ -104,13 +104,13 @@ serve(async (req) => {
   try {
     const { messages, personality, language, responseMode, userId } = await req.json();
 
-    // Use Google Gemini API directly with user's API key
-    const GEMINI_API_KEY = Deno.env.get('GEMINI_FLASH');
+    // Use OpenRouter with Xiaomi MiMo model (free tier)
+    const OPENROUTER_API_KEY = Deno.env.get('OPENROUTER_API_KEY');
     const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 
-    if (!GEMINI_API_KEY) {
-      throw new Error('GEMINI_FLASH API key not configured');
+    if (!OPENROUTER_API_KEY) {
+      throw new Error('OPENROUTER_API_KEY not configured');
     }
 
     const trimMessages = (
@@ -293,45 +293,31 @@ IMPORTANT: Prioritize information from uploaded documents and Bangladesh laws da
       extreme: 8000,
     };
 
-    // Convert messages to Gemini format
-    const geminiContents = safeMessages.map(msg => ({
-      role: msg.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: msg.content }]
-    }));
-
-    // Use Gemini API directly
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:streamGenerateContent?alt=sse&key=${GEMINI_API_KEY}`;
-    
-    const response = await fetch(geminiUrl, {
+    // Use OpenRouter API with Xiaomi MiMo model
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
+        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
         'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://jurismind.app',
+        'X-Title': 'JurisMind Legal AI',
       },
       body: JSON.stringify({
-        contents: [
-          { role: 'user', parts: [{ text: systemPrompt }] },
-          { role: 'model', parts: [{ text: 'Understood. I am JurisMind AI, trained by RONY. I will follow all the instructions.' }] },
-          ...geminiContents,
+        model: 'xiaomi/mimo-vl-7b-flash:free',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          ...safeMessages,
         ],
-        generationConfig: {
-          maxOutputTokens: maxTokensByMode[responseMode] ?? 4000,
-          temperature: 0.7,
-        },
-        safetySettings: [
-          { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
-          { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
-          { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
-          { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
-        ],
+        stream: true,
+        max_tokens: maxTokensByMode[responseMode] ?? 4000,
       }),
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('Gemini API error:', response.status, errorText);
+      console.error('OpenRouter API error:', response.status, errorText);
 
-      // Best-effort extraction of a useful error message
-      let friendly = 'Gemini API request failed.';
+      let friendly = 'AI request failed.';
       try {
         const parsed = JSON.parse(errorText);
         const msg = parsed?.error?.message;
@@ -346,62 +332,20 @@ IMPORTANT: Prioritize information from uploaded documents and Bangladesh laws da
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
-
-      // Most common: invalid/restricted API key or API not enabled
-      if (response.status === 400 || response.status === 401 || response.status === 403) {
-        return new Response(JSON.stringify({ error: friendly }), {
-          status: response.status,
+      if (response.status === 402) {
+        return new Response(JSON.stringify({ error: 'API credits exhausted.' }), {
+          status: 402,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
 
       return new Response(JSON.stringify({ error: friendly }), {
-        status: 500,
+        status: response.status,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    // Transform Gemini SSE format to OpenAI-compatible format for frontend
-    const transformStream = new TransformStream({
-      transform(chunk, controller) {
-        const text = new TextDecoder().decode(chunk);
-        const lines = text.split('\n');
-        
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(line.slice(6));
-              if (data.candidates?.[0]?.content?.parts?.[0]?.text) {
-                const content = data.candidates[0].content.parts[0].text;
-                const openAIFormat = {
-                  choices: [{
-                    delta: { content },
-                    index: 0
-                  }]
-                };
-                controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(openAIFormat)}\n\n`));
-              }
-            } catch (e) {
-              // Skip malformed JSON
-            }
-          }
-        }
-      },
-      flush(controller) {
-        controller.enqueue(new TextEncoder().encode('data: [DONE]\n\n'));
-      }
-    });
-
-    return new Response(response.body?.pipeThrough(transformStream), {
-      headers: { 
-        ...corsHeaders, 
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
-      }
-    });
-
-    // Stream the response directly to client
+    // OpenRouter returns OpenAI-compatible SSE format, stream directly
     return new Response(response.body, {
       headers: { 
         ...corsHeaders, 
