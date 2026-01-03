@@ -82,14 +82,15 @@ const Admin = () => {
     checkAdminAccess();
   }, []);
 
-  // Auto-scroll to bottom when conversation messages load
+  // Auto-scroll to bottom only when opening a new conversation
   useEffect(() => {
-    if (conversationMessages.length > 0 && selectedConversation) {
-      setTimeout(() => {
+    if (selectedConversation && conversationMessages.length > 0) {
+      const timer = setTimeout(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-      }, 100);
+      }, 150);
+      return () => clearTimeout(timer);
     }
-  }, [conversationMessages, selectedConversation]);
+  }, [selectedConversation?.id]);
 
   const checkAdminAccess = async () => {
     const { data: { session } } = await supabase.auth.getSession();
