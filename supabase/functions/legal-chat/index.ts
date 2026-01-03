@@ -171,25 +171,30 @@ function isKeyAvailable(state: APIKeyState): boolean {
   return state.isActive && (!state.cooldownUntil || now >= state.cooldownUntil);
 }
 
-function getActiveKey(): { keyId: string; state: APIKeyState } | null {
+function getActiveKey(excludeKeys: Set<string> = new Set()): { keyId: string; state: APIKeyState } | null {
   initializeKeyStates();
   
-  // Try primary key first
-  const primaryState = keyStates.get('primary');
-  if (primaryState && isKeyAvailable(primaryState)) {
-    console.log(`[API Key Manager] Using Primary key`);
-    return { keyId: 'primary', state: primaryState };
+  // Try primary key first (if not excluded)
+  if (!excludeKeys.has('primary')) {
+    const primaryState = keyStates.get('primary');
+    if (primaryState && isKeyAvailable(primaryState)) {
+      console.log(`[API Key Manager] Using Primary key`);
+      return { keyId: 'primary', state: primaryState };
+    }
   }
   
-  // Fall back to secondary key
-  const secondaryState = keyStates.get('secondary');
-  if (secondaryState && isKeyAvailable(secondaryState)) {
-    console.log(`[API Key Manager] Primary unavailable, using Secondary key`);
-    return { keyId: 'secondary', state: secondaryState };
+  // Fall back to secondary key (if not excluded)
+  if (!excludeKeys.has('secondary')) {
+    const secondaryState = keyStates.get('secondary');
+    if (secondaryState && isKeyAvailable(secondaryState)) {
+      console.log(`[API Key Manager] Primary unavailable or excluded, using Secondary key`);
+      return { keyId: 'secondary', state: secondaryState };
+    }
   }
   
   // Check if primary can be recovered
-  if (primaryState && primaryState.cooldownUntil) {
+  const primaryState = keyStates.get('primary');
+  if (primaryState && primaryState.cooldownUntil && !excludeKeys.has('primary')) {
     const remainingCooldown = primaryState.cooldownUntil - Date.now();
     if (remainingCooldown <= 0) {
       primaryState.isActive = true;
@@ -577,17 +582,18 @@ IMPORTANT: Prioritize information from uploaded documents and Bangladesh laws da
     
     // Try each available key
     while (triedKeys.size < keyStates.size) {
-      const activeKey = getActiveKey();
+      const activeKey = getActiveKey(triedKeys);
       
-      if (!activeKey || triedKeys.has(activeKey.keyId)) {
-        // No more keys to try
+      if (!activeKey) {
+        // No more keys available
+        console.log(`[API Key Manager] No more keys available to try. Tried: ${Array.from(triedKeys).join(', ')}`);
         break;
       }
       
       triedKeys.add(activeKey.keyId);
       usedKeyId = activeKey.keyId;
       
-      console.log(`[API Key Manager] Attempting request with ${activeKey.state.name}`);
+      console.log(`[API Key Manager] Attempting request with ${activeKey.state.name} (attempt ${triedKeys.size})`);
       
       try {
         response = await makeGeminiRequest(
@@ -610,6 +616,7 @@ IMPORTANT: Prioritize information from uploaded documents and Bangladesh laws da
           if (isRetryableError(response.status, errorText)) {
             // Mark this key as failed and try the next one
             markKeyFailed(activeKey.keyId, `HTTP ${response.status}`);
+            console.log(`[API Key Manager] ${activeKey.state.name} failed with retryable error, trying next key...`);
             response = null; // Reset to try next key
             continue;
           } else {
@@ -633,6 +640,7 @@ IMPORTANT: Prioritize information from uploaded documents and Bangladesh laws da
         console.error(`[API Key Manager] Fetch error with ${activeKey.state.name}:`, fetchError);
         markKeyFailed(activeKey.keyId, 'Network error');
         lastError = fetchError instanceof Error ? fetchError.message : 'Network error';
+        console.log(`[API Key Manager] ${activeKey.state.name} network error, trying next key...`);
         response = null;
         continue;
       }
