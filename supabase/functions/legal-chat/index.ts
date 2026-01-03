@@ -109,6 +109,167 @@ DISCLAIMER: Always include when giving legal advice:
 "এই তথ্য শুধুমাত্র শিক্ষামূলক উদ্দেশ্যে। আইনি বিষয়ে চূড়ান্ত সিদ্ধান্তের জন্য একজন যোগ্য আইনজীবীর পরামর্শ নিন।"
 ("This information is for educational purposes only. Consult a qualified lawyer for final decisions on legal matters.")`;
 
+// ============================
+// API KEY MANAGEMENT SYSTEM
+// ============================
+interface APIKeyState {
+  key: string;
+  name: string;
+  isActive: boolean;
+  lastFailure: number | null;
+  cooldownUntil: number | null;
+  failureCount: number;
+}
+
+// Cooldown configuration (in milliseconds)
+const COOLDOWN_DURATION = 60000; // 1 minute cooldown after failure
+const MAX_FAILURES_BEFORE_COOLDOWN = 2; // Number of failures before applying cooldown
+const RECOVERY_CHECK_INTERVAL = 30000; // Check for recovery every 30 seconds
+
+// In-memory key state (persists across requests within the same edge function instance)
+const keyStates: Map<string, APIKeyState> = new Map();
+
+function initializeKeyStates(): void {
+  const primaryKey = Deno.env.get('GOOGLE_API_KEY');
+  const secondaryKey = Deno.env.get('GOOGLE_API_KEY_SECONDARY');
+  
+  if (primaryKey && !keyStates.has('primary')) {
+    keyStates.set('primary', {
+      key: primaryKey,
+      name: 'Primary Gemini API',
+      isActive: true,
+      lastFailure: null,
+      cooldownUntil: null,
+      failureCount: 0,
+    });
+  }
+  
+  if (secondaryKey && !keyStates.has('secondary')) {
+    keyStates.set('secondary', {
+      key: secondaryKey,
+      name: 'Secondary Gemini API',
+      isActive: true,
+      lastFailure: null,
+      cooldownUntil: null,
+      failureCount: 0,
+    });
+  }
+}
+
+function isKeyAvailable(state: APIKeyState): boolean {
+  const now = Date.now();
+  
+  // Check if cooldown has expired
+  if (state.cooldownUntil && now >= state.cooldownUntil) {
+    // Reset the key state after cooldown
+    state.isActive = true;
+    state.cooldownUntil = null;
+    state.failureCount = 0;
+    console.log(`[API Key Manager] ${state.name} cooldown expired, key restored`);
+  }
+  
+  return state.isActive && (!state.cooldownUntil || now >= state.cooldownUntil);
+}
+
+function getActiveKey(): { keyId: string; state: APIKeyState } | null {
+  initializeKeyStates();
+  
+  // Try primary key first
+  const primaryState = keyStates.get('primary');
+  if (primaryState && isKeyAvailable(primaryState)) {
+    console.log(`[API Key Manager] Using Primary key`);
+    return { keyId: 'primary', state: primaryState };
+  }
+  
+  // Fall back to secondary key
+  const secondaryState = keyStates.get('secondary');
+  if (secondaryState && isKeyAvailable(secondaryState)) {
+    console.log(`[API Key Manager] Primary unavailable, using Secondary key`);
+    return { keyId: 'secondary', state: secondaryState };
+  }
+  
+  // Check if primary can be recovered
+  if (primaryState && primaryState.cooldownUntil) {
+    const remainingCooldown = primaryState.cooldownUntil - Date.now();
+    if (remainingCooldown <= 0) {
+      primaryState.isActive = true;
+      primaryState.cooldownUntil = null;
+      primaryState.failureCount = 0;
+      console.log(`[API Key Manager] Primary key recovered from cooldown`);
+      return { keyId: 'primary', state: primaryState };
+    }
+  }
+  
+  return null;
+}
+
+function markKeyFailed(keyId: string, errorType: string): void {
+  const state = keyStates.get(keyId);
+  if (!state) return;
+  
+  const now = Date.now();
+  state.failureCount++;
+  state.lastFailure = now;
+  
+  console.log(`[API Key Manager] ${state.name} failed (${errorType}), failure count: ${state.failureCount}`);
+  
+  if (state.failureCount >= MAX_FAILURES_BEFORE_COOLDOWN) {
+    state.isActive = false;
+    state.cooldownUntil = now + COOLDOWN_DURATION;
+    console.log(`[API Key Manager] ${state.name} placed in cooldown until ${new Date(state.cooldownUntil).toISOString()}`);
+  }
+}
+
+function resetKeyState(keyId: string): void {
+  const state = keyStates.get(keyId);
+  if (!state) return;
+  
+  state.isActive = true;
+  state.failureCount = 0;
+  state.cooldownUntil = null;
+  console.log(`[API Key Manager] ${state.name} state reset (successful request)`);
+}
+
+function isRetryableError(status: number, errorText: string): boolean {
+  // Rate limit errors
+  if (status === 429) return true;
+  
+  // Quota exceeded
+  if (errorText.toLowerCase().includes('quota')) return true;
+  if (errorText.toLowerCase().includes('resource exhausted')) return true;
+  
+  // Temporary service unavailability
+  if (status === 503 || status === 502 || status === 500) return true;
+  
+  return false;
+}
+
+async function makeGeminiRequest(
+  apiKey: string,
+  geminiContents: Array<{ role: string; parts: Array<{ text: string }> }>,
+  systemPrompt: string,
+  maxTokens: number
+): Promise<Response> {
+  return await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:streamGenerateContent?alt=sse&key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        contents: geminiContents,
+        systemInstruction: {
+          parts: [{ text: systemPrompt }]
+        },
+        generationConfig: {
+          maxOutputTokens: maxTokens,
+        },
+      }),
+    }
+  );
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -117,7 +278,9 @@ serve(async (req) => {
   try {
     const { messages, personality, language, responseMode, userId } = await req.json();
 
-    // Use Lovable AI Gateway
+    // Initialize API keys
+    initializeKeyStates();
+
     const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 
@@ -396,12 +559,7 @@ IMPORTANT: Prioritize information from uploaded documents and Bangladesh laws da
       extreme: 8000,
     };
 
-    // Use Google Gemini 2.5 Flash Lite
-    const GOOGLE_API_KEY = Deno.env.get('GOOGLE_API_KEY');
-    
-    if (!GOOGLE_API_KEY) {
-      throw new Error('GOOGLE_API_KEY not configured');
-    }
+    const maxTokens = maxTokensByMode[responseMode] ?? 4000;
 
     // Convert messages to Gemini format
     const geminiContents = safeMessages.map(msg => ({
@@ -409,47 +567,95 @@ IMPORTANT: Prioritize information from uploaded documents and Bangladesh laws da
       parts: [{ text: msg.content }]
     }));
 
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:streamGenerateContent?alt=sse&key=${GOOGLE_API_KEY}`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          contents: geminiContents,
-          systemInstruction: {
-            parts: [{ text: systemPrompt }]
-          },
-          generationConfig: {
-            maxOutputTokens: maxTokensByMode[responseMode] ?? 4000,
-          },
-        }),
+    // ============================
+    // INTELLIGENT API KEY SWITCHING
+    // ============================
+    let response: Response | null = null;
+    let lastError: string = '';
+    let usedKeyId: string | null = null;
+    const triedKeys: Set<string> = new Set();
+    
+    // Try each available key
+    while (triedKeys.size < keyStates.size) {
+      const activeKey = getActiveKey();
+      
+      if (!activeKey || triedKeys.has(activeKey.keyId)) {
+        // No more keys to try
+        break;
       }
-    );
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Google Gemini error:', response.status, errorText);
-
-      let friendly = 'AI request failed.';
+      
+      triedKeys.add(activeKey.keyId);
+      usedKeyId = activeKey.keyId;
+      
+      console.log(`[API Key Manager] Attempting request with ${activeKey.state.name}`);
+      
       try {
-        const parsed = JSON.parse(errorText);
-        const msg = parsed?.error?.message || parsed?.error;
-        if (typeof msg === 'string' && msg.trim()) friendly = msg;
-      } catch {
-        // keep default
+        response = await makeGeminiRequest(
+          activeKey.state.key,
+          geminiContents,
+          systemPrompt,
+          maxTokens
+        );
+        
+        if (response.ok) {
+          // Success! Reset the key's failure state
+          resetKeyState(activeKey.keyId);
+          console.log(`[API Key Manager] Request successful with ${activeKey.state.name}`);
+          break;
+        } else {
+          const errorText = await response.text();
+          console.error(`[API Key Manager] ${activeKey.state.name} error:`, response.status, errorText);
+          lastError = errorText;
+          
+          if (isRetryableError(response.status, errorText)) {
+            // Mark this key as failed and try the next one
+            markKeyFailed(activeKey.keyId, `HTTP ${response.status}`);
+            response = null; // Reset to try next key
+            continue;
+          } else {
+            // Non-retryable error, return immediately
+            let friendly = 'AI request failed.';
+            try {
+              const parsed = JSON.parse(errorText);
+              const msg = parsed?.error?.message || parsed?.error;
+              if (typeof msg === 'string' && msg.trim()) friendly = msg;
+            } catch {
+              // keep default
+            }
+            
+            return new Response(JSON.stringify({ error: friendly }), {
+              status: response.status,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
+          }
+        }
+      } catch (fetchError) {
+        console.error(`[API Key Manager] Fetch error with ${activeKey.state.name}:`, fetchError);
+        markKeyFailed(activeKey.keyId, 'Network error');
+        lastError = fetchError instanceof Error ? fetchError.message : 'Network error';
+        response = null;
+        continue;
       }
-
-      if (response.status === 429) {
-        return new Response(JSON.stringify({ error: 'Rate limit exceeded. Please try again later.' }), {
-          status: 429,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
+    }
+    
+    // Check if we have a successful response
+    if (!response || !response.ok) {
+      console.error('[API Key Manager] All API keys exhausted or unavailable');
+      
+      // Provide user-friendly error message
+      let errorMessage = 'AI service temporarily unavailable. Please try again in a moment.';
+      
+      if (lastError.toLowerCase().includes('quota') || lastError.toLowerCase().includes('resource exhausted')) {
+        errorMessage = 'API quota temporarily exceeded. The system will automatically recover. Please try again in 1-2 minutes.';
+      } else if (lastError.includes('429')) {
+        errorMessage = 'Rate limit reached. Please wait a moment before sending another message.';
       }
-
-      return new Response(JSON.stringify({ error: friendly }), {
-        status: response.status,
+      
+      return new Response(JSON.stringify({ 
+        error: errorMessage,
+        retryAfter: 60 // Suggest retry after 60 seconds
+      }), {
+        status: 503,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
@@ -501,6 +707,10 @@ IMPORTANT: Prioritize information from uploaded documents and Bangladesh laws da
         await writer.write(encoder.encode('data: [DONE]\n\n'));
       } catch (e) {
         console.error('Stream processing error:', e);
+        // If streaming fails, mark the key for potential issues
+        if (usedKeyId) {
+          markKeyFailed(usedKeyId, 'Stream error');
+        }
       } finally {
         await writer.close();
       }
