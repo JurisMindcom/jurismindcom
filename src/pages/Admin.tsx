@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { 
@@ -76,10 +76,20 @@ const Admin = () => {
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
   const [conversationMessages, setConversationMessages] = useState<Message[]>([]);
   const [loadingUserData, setLoadingUserData] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     checkAdminAccess();
   }, []);
+
+  // Auto-scroll to bottom when conversation messages load
+  useEffect(() => {
+    if (conversationMessages.length > 0 && selectedConversation) {
+      setTimeout(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }, 100);
+    }
+  }, [conversationMessages, selectedConversation]);
 
   const checkAdminAccess = async () => {
     const { data: { session } } = await supabase.auth.getSession();
@@ -455,8 +465,8 @@ const Admin = () => {
             </div>
           ) : selectedConversation ? (
             // Show conversation messages
-            <ScrollArea className="flex-1 pr-4">
-              <div className="space-y-4">
+            <ScrollArea className="flex-1 h-[calc(90vh-120px)] pr-4">
+              <div className="space-y-4 pb-4">
                 {conversationMessages.map((msg) => (
                   <div key={msg.id} className={`p-3 rounded-lg ${msg.role === 'user' ? 'bg-primary/20 ml-8' : 'bg-secondary mr-8'}`}>
                     <p className="text-xs text-muted-foreground mb-1">{msg.role === 'user' ? 'User' : 'JurisMind'}</p>
@@ -464,6 +474,7 @@ const Admin = () => {
                     <p className="text-xs text-muted-foreground mt-1">{new Date(msg.created_at).toLocaleString()}</p>
                   </div>
                 ))}
+                <div ref={messagesEndRef} />
               </div>
             </ScrollArea>
           ) : (
