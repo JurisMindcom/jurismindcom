@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import { 
   Scale, ArrowLeft, Users, MessageSquare, FileText, Settings,
   Shield, Activity, Search, Download, Eye, Calendar, TrendingUp,
-  Loader2, Brain, ChevronLeft, Database
+  Loader2, Brain, ChevronLeft, Database, Zap, Key
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -411,10 +411,63 @@ const Admin = () => {
                     </Button>
                   </div>
 
+                  {/* API Key Status Dashboard */}
+                  <div className="p-4 rounded-lg bg-secondary/50">
+                    <div className="flex items-center gap-2 mb-4">
+                      <Key className="w-5 h-5 text-primary" />
+                      <h3 className="font-semibold">API Key Status</h3>
+                    </div>
+                    <p className="text-sm text-muted-foreground mb-4">
+                      Gemini API keys with automatic failover for high availability.
+                    </p>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* Key 1 - Primary */}
+                      <div className="relative p-4 rounded-lg border border-primary/30 bg-primary/5">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <div className="p-2 rounded-full bg-primary/20">
+                              <Zap className="w-4 h-4 text-primary animate-pulse" />
+                            </div>
+                            <span className="font-medium">Key 1</span>
+                          </div>
+                          <Badge className="bg-green-500/20 text-green-400 border-green-500/30">
+                            Active
+                          </Badge>
+                        </div>
+                        <p className="text-xs text-muted-foreground">Primary Gemini API Key</p>
+                        <p className="text-xs text-primary mt-1">Currently Running</p>
+                      </div>
+
+                      {/* Key 2 - Secondary */}
+                      <div className="relative p-4 rounded-lg border border-border bg-secondary/30">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <div className="p-2 rounded-full bg-muted">
+                              <Zap className="w-4 h-4 text-muted-foreground" />
+                            </div>
+                            <span className="font-medium">Key 2</span>
+                          </div>
+                          <Badge variant="outline" className="text-muted-foreground">
+                            Standby
+                          </Badge>
+                        </div>
+                        <p className="text-xs text-muted-foreground">Secondary Gemini 2.5 Flash Key</p>
+                        <p className="text-xs text-muted-foreground mt-1">Ready for Failover</p>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 p-3 rounded-lg bg-primary/10 border border-primary/20">
+                      <p className="text-xs text-muted-foreground">
+                        <span className="text-primary font-medium">Auto-Switch:</span> System automatically switches to Key 2 if Key 1 hits rate limits or quota, and vice versa.
+                      </p>
+                    </div>
+                  </div>
+
                   <div className="p-4 rounded-lg bg-secondary/50">
                     <h3 className="font-semibold mb-2">AI Configuration</h3>
                     <p className="text-sm text-muted-foreground mb-4">
-                      JurisMind AI is powered by Lovable AI Gateway with Gemini 2.5 Flash model.
+                      JurisMind AI is powered by Google Gemini 2.5 Flash Lite model with dual-key failover.
                     </p>
                     <Badge>Active</Badge>
                   </div>
