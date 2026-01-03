@@ -465,8 +465,11 @@ const Admin = () => {
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
             </div>
           ) : selectedConversation ? (
-            // Show conversation messages
-            <ScrollArea className="flex-1 h-[calc(90vh-120px)] pr-4">
+            // Show conversation messages with touch-friendly scrolling
+            <div 
+              className="flex-1 h-[calc(90vh-120px)] overflow-y-auto overscroll-contain pr-4"
+              style={{ WebkitOverflowScrolling: 'touch' }}
+            >
               <div className="space-y-4 pb-4">
                 {conversationMessages.map((msg) => (
                   <div key={msg.id} className={`p-3 rounded-lg ${msg.role === 'user' ? 'bg-primary/20 ml-8' : 'bg-secondary mr-8'}`}>
@@ -477,7 +480,7 @@ const Admin = () => {
                 ))}
                 <div ref={messagesEndRef} />
               </div>
-            </ScrollArea>
+            </div>
           ) : (
             // Show user profile tabs
             <Tabs defaultValue="conversations" className="flex-1 overflow-hidden flex flex-col">
