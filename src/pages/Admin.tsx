@@ -67,6 +67,7 @@ const Admin = () => {
     totalMessages: 0,
   });
   const [searchQuery, setSearchQuery] = useState('');
+  const [activeApiKey, setActiveApiKey] = useState<1 | 2>(1);
   
   // User Profile Modal State
   const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null);
@@ -418,48 +419,72 @@ const Admin = () => {
                       <h3 className="font-semibold">API Key Status</h3>
                     </div>
                     <p className="text-sm text-muted-foreground mb-4">
-                      Gemini API keys with automatic failover for high availability.
+                      Tap on a key to manually switch. Gemini API keys with automatic failover.
                     </p>
                     
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       {/* Key 1 - Primary */}
-                      <div className="relative p-4 rounded-lg border border-primary/30 bg-primary/5">
+                      <button
+                        onClick={() => {
+                          setActiveApiKey(1);
+                          toast({ title: "API Key Switched", description: "Now using Key 1 (Primary Gemini API Key)" });
+                        }}
+                        className={`relative p-4 rounded-lg border text-left transition-all ${
+                          activeApiKey === 1 
+                            ? 'border-primary/50 bg-primary/10 ring-2 ring-primary/30' 
+                            : 'border-border bg-secondary/30 hover:border-primary/30 hover:bg-secondary/50'
+                        }`}
+                      >
                         <div className="flex items-center justify-between mb-2">
                           <div className="flex items-center gap-2">
-                            <div className="p-2 rounded-full bg-primary/20">
-                              <Zap className="w-4 h-4 text-primary animate-pulse" />
+                            <div className={`p-2 rounded-full ${activeApiKey === 1 ? 'bg-primary/20' : 'bg-muted'}`}>
+                              <Zap className={`w-4 h-4 ${activeApiKey === 1 ? 'text-primary animate-pulse' : 'text-muted-foreground'}`} />
                             </div>
                             <span className="font-medium">Key 1</span>
                           </div>
-                          <Badge className="bg-green-500/20 text-green-400 border-green-500/30">
-                            Active
+                          <Badge className={activeApiKey === 1 ? 'bg-green-500/20 text-green-400 border-green-500/30' : 'bg-muted text-muted-foreground'}>
+                            {activeApiKey === 1 ? 'Active' : 'Standby'}
                           </Badge>
                         </div>
                         <p className="text-xs text-muted-foreground">Primary Gemini API Key</p>
-                        <p className="text-xs text-primary mt-1">Currently Running</p>
-                      </div>
+                        <p className={`text-xs mt-1 ${activeApiKey === 1 ? 'text-primary' : 'text-muted-foreground'}`}>
+                          {activeApiKey === 1 ? 'Currently Running' : 'Tap to activate'}
+                        </p>
+                      </button>
 
                       {/* Key 2 - Secondary */}
-                      <div className="relative p-4 rounded-lg border border-border bg-secondary/30">
+                      <button
+                        onClick={() => {
+                          setActiveApiKey(2);
+                          toast({ title: "API Key Switched", description: "Now using Key 2 (Secondary Gemini 2.5 Flash Key)" });
+                        }}
+                        className={`relative p-4 rounded-lg border text-left transition-all ${
+                          activeApiKey === 2 
+                            ? 'border-primary/50 bg-primary/10 ring-2 ring-primary/30' 
+                            : 'border-border bg-secondary/30 hover:border-primary/30 hover:bg-secondary/50'
+                        }`}
+                      >
                         <div className="flex items-center justify-between mb-2">
                           <div className="flex items-center gap-2">
-                            <div className="p-2 rounded-full bg-muted">
-                              <Zap className="w-4 h-4 text-muted-foreground" />
+                            <div className={`p-2 rounded-full ${activeApiKey === 2 ? 'bg-primary/20' : 'bg-muted'}`}>
+                              <Zap className={`w-4 h-4 ${activeApiKey === 2 ? 'text-primary animate-pulse' : 'text-muted-foreground'}`} />
                             </div>
                             <span className="font-medium">Key 2</span>
                           </div>
-                          <Badge variant="outline" className="text-muted-foreground">
-                            Standby
+                          <Badge className={activeApiKey === 2 ? 'bg-green-500/20 text-green-400 border-green-500/30' : 'bg-muted text-muted-foreground'}>
+                            {activeApiKey === 2 ? 'Active' : 'Standby'}
                           </Badge>
                         </div>
                         <p className="text-xs text-muted-foreground">Secondary Gemini 2.5 Flash Key</p>
-                        <p className="text-xs text-muted-foreground mt-1">Ready for Failover</p>
-                      </div>
+                        <p className={`text-xs mt-1 ${activeApiKey === 2 ? 'text-primary' : 'text-muted-foreground'}`}>
+                          {activeApiKey === 2 ? 'Currently Running' : 'Tap to activate'}
+                        </p>
+                      </button>
                     </div>
 
                     <div className="mt-4 p-3 rounded-lg bg-primary/10 border border-primary/20">
                       <p className="text-xs text-muted-foreground">
-                        <span className="text-primary font-medium">Auto-Switch:</span> System automatically switches to Key 2 if Key 1 hits rate limits or quota, and vice versa.
+                        <span className="text-primary font-medium">Auto-Switch:</span> System automatically switches keys on rate limits. Manual override available above.
                       </p>
                     </div>
                   </div>
