@@ -65,11 +65,17 @@ async function getActiveImageModel(supabaseUrl: string, supabaseKey: string) {
 // Generate image with Lovable AI Gateway (no API key needed)
 async function generateWithLovableGateway(prompt: string) {
   console.log('Generating image with Lovable AI Gateway (google/gemini-2.5-flash-image-preview)...');
-  
+
+  const lovableApiKey = Deno.env.get('LOVABLE_API_KEY');
+  if (!lovableApiKey) {
+    throw new Error('LOVABLE_API_KEY is not configured on the backend');
+  }
+
   const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'Authorization': `Bearer ${lovableApiKey}`,
     },
     body: JSON.stringify({
       model: 'google/gemini-2.5-flash-image-preview',
@@ -192,11 +198,17 @@ async function generateWithCustomAPI(apiKey: string, modelName: string, prompt: 
 // Analyze image with Lovable AI Gateway
 async function analyzeWithLovableGateway(imageBase64: string, prompt: string) {
   console.log('Analyzing image with Lovable AI Gateway...');
-  
+
+  const lovableApiKey = Deno.env.get('LOVABLE_API_KEY');
+  if (!lovableApiKey) {
+    throw new Error('LOVABLE_API_KEY is not configured on the backend');
+  }
+
   const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'Authorization': `Bearer ${lovableApiKey}`,
     },
     body: JSON.stringify({
       model: 'google/gemini-2.5-flash',
@@ -262,11 +274,17 @@ async function analyzeWithOpenAI(apiKey: string, imageBase64: string, prompt: st
 // Edit image with Lovable AI Gateway
 async function editWithLovableGateway(imageBase64: string, editInstructions: string) {
   console.log('Editing image with Lovable AI Gateway...');
-  
+
+  const lovableApiKey = Deno.env.get('LOVABLE_API_KEY');
+  if (!lovableApiKey) {
+    throw new Error('LOVABLE_API_KEY is not configured on the backend');
+  }
+
   const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'Authorization': `Bearer ${lovableApiKey}`,
     },
     body: JSON.stringify({
       model: 'google/gemini-2.5-flash-image-preview',
