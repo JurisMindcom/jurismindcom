@@ -387,17 +387,71 @@ ${ocrResult.summary}
     return `${fileInfo}\n\n[Document uploaded for analysis. Please extract and analyze the content.]`;
   };
 
+  // Save generated image to storage and documents
+  const saveGeneratedImage = async (imageBase64: string, prompt: string, aspectRatio: string): Promise<string | null> => {
+    try {
+      // Convert base64 to blob
+      const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
+      const byteCharacters = atob(base64Data);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], { type: 'image/png' });
+
+      const fileName = `generated-${Date.now()}.png`;
+      const filePath = `${userId}/${fileName}`;
+
+      // Upload to storage
+      const { error: uploadError } = await supabase.storage
+        .from('generated-images')
+        .upload(filePath, blob, { contentType: 'image/png' });
+
+      if (uploadError) throw uploadError;
+
+      // Get public URL
+      const { data: urlData } = supabase.storage
+        .from('generated-images')
+        .getPublicUrl(filePath);
+
+      // Save to documents table with is_generated flag
+      await supabase.from('documents').insert({
+        user_id: userId,
+        filename: fileName,
+        file_type: 'image/png',
+        file_size: blob.size,
+        storage_path: filePath,
+        is_generated: true,
+        generation_prompt: prompt,
+        aspect_ratio: aspectRatio,
+      });
+
+      return urlData.publicUrl;
+    } catch (err) {
+      console.error('Error saving generated image:', err);
+      return null;
+    }
+  };
+
   // Handle Image AI actions
   const handleImageAction = async () => {
     if (!input.trim() && imageMode !== 'analyze') return;
 
     const tempId = `img-${Date.now()}`;
     const nowIso = new Date().toISOString();
+    const userPrompt = input.trim();
 
     const config = {
       aspectRatio: imageAspectRatio,
       imageSize: '2K' as const,
     };
+
+    const userContent = imageMode === 'generate'
+      ? `🎨 Generate image (${imageAspectRatio}): ${userPrompt}`
+      : imageMode === 'edit'
+        ? `✏️ Edit image (${imageAspectRatio}): ${userPrompt}`
+        : `🔍 Analyze image${userPrompt ? `: ${userPrompt}` : ''}`;
 
     // Always show the user prompt + an in-chat processing message
     setMessages(prev => [
@@ -405,12 +459,7 @@ ${ocrResult.summary}
       {
         id: `user-${tempId}`,
         role: 'user',
-        content:
-          imageMode === 'generate'
-            ? `🎨 Generate image (${imageAspectRatio}): ${input}`
-            : imageMode === 'edit'
-              ? `✏️ Edit image (${imageAspectRatio}): ${input}`
-              : `🔍 Analyze image${input ? `: ${input}` : ''}`,
+        content: userContent,
         created_at: nowIso,
       },
       {
@@ -432,25 +481,59 @@ ${ocrResult.summary}
     setIsLoading(true);
 
     try {
+      // Create or get conversation
+      let convId = currentConversationId;
+      if (!convId) {
+        const { data } = await supabase
+          .from('conversations')
+          .insert({
+            user_id: userId,
+            title: userPrompt.slice(0, 50) || `Image ${imageMode}`,
+            personality_mode: personality,
+            language: language,
+            tags: ['Image AI'],
+          })
+          .select()
+          .single();
+        
+        if (data) {
+          convId = data.id;
+          setCurrentConversationId(data.id);
+          onNewConversation(data.id);
+        }
+      }
+
+      if (!convId) throw new Error('Failed to create conversation');
+
+      // Save user message to database
+      await saveMessage(convId, 'user', userContent);
+
       let result;
+      let assistantContent = '';
+      let savedImageUrl: string | null = null;
 
       if (imageMode === 'generate') {
-        result = await generateImage(input, config);
+        result = await generateImage(userPrompt, config);
         if (result?.imageUrl) {
+          // Save image to storage
+          savedImageUrl = await saveGeneratedImage(result.imageUrl, userPrompt, imageAspectRatio);
+          assistantContent = `${result.description || 'Image generated successfully'}\n\n![Generated Image](${savedImageUrl || result.imageUrl})`;
+          
           setMessages(prev => prev.map(m => (
             m.id === tempId
               ? {
                   ...m,
                   pending: false,
-                  imageUrl: result.imageUrl,
-                  content: `${result.description || 'Image generated successfully'}`,
+                  imageUrl: savedImageUrl || result.imageUrl,
+                  content: result.description || 'Image generated successfully',
                 }
               : m
           )));
         }
       } else if (imageMode === 'analyze' && uploadedImage) {
-        result = await analyzeImage(uploadedImage, input || undefined);
+        result = await analyzeImage(uploadedImage, userPrompt || undefined);
         if (result?.analysis) {
+          assistantContent = result.analysis;
           setMessages(prev => prev.map(m => (
             m.id === tempId
               ? {
@@ -462,26 +545,35 @@ ${ocrResult.summary}
           )));
         }
       } else if (imageMode === 'edit' && uploadedImage) {
-        result = await editImage(uploadedImage, input, config);
+        result = await editImage(uploadedImage, userPrompt, config);
         if (result?.imageUrl) {
+          // Save edited image to storage
+          savedImageUrl = await saveGeneratedImage(result.imageUrl, userPrompt, imageAspectRatio);
+          assistantContent = `${result.description || 'Image edited successfully'}\n\n![Edited Image](${savedImageUrl || result.imageUrl})`;
+          
           setMessages(prev => prev.map(m => (
             m.id === tempId
               ? {
                   ...m,
                   pending: false,
-                  imageUrl: result.imageUrl,
-                  content: `${result.description || 'Image edited successfully'}`,
+                  imageUrl: savedImageUrl || result.imageUrl,
+                  content: result.description || 'Image edited successfully',
                 }
               : m
           )));
         }
       }
 
-      // If we didn't get a result, turn the pending bubble into an error message
-      if (!result) {
+      // Save assistant message to database
+      if (assistantContent) {
+        await saveMessage(convId, 'assistant', assistantContent);
+      } else {
+        // If no result, save error message
+        const errorContent = 'Image processing failed. Please try again.';
+        await saveMessage(convId, 'assistant', errorContent);
         setMessages(prev => prev.map(m => (
           m.id === tempId
-            ? { ...m, pending: false, content: 'Image processing failed. Please try again.' }
+            ? { ...m, pending: false, content: errorContent }
             : m
         )));
       }
@@ -489,9 +581,10 @@ ${ocrResult.summary}
       setUploadedImage(null);
       setImageMode('off');
     } catch (error: any) {
+      const errorContent = `Image processing error: ${error.message || 'Unknown error'}`;
       setMessages(prev => prev.map(m => (
         m.id === tempId
-          ? { ...m, pending: false, content: `Image processing error: ${error.message || 'Unknown error'}` }
+          ? { ...m, pending: false, content: errorContent }
           : m
       )));
       toast({ title: "Error", description: error.message, variant: "destructive" });

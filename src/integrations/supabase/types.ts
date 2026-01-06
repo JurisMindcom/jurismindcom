@@ -292,13 +292,16 @@ export type Database = {
       documents: {
         Row: {
           analysis_result: Json | null
+          aspect_ratio: string | null
           conversation_id: string | null
           created_at: string | null
           extracted_text: string | null
           file_size: number
           file_type: string
           filename: string
+          generation_prompt: string | null
           id: string
+          is_generated: boolean | null
           language: string | null
           ocr_text: string | null
           storage_path: string
@@ -306,13 +309,16 @@ export type Database = {
         }
         Insert: {
           analysis_result?: Json | null
+          aspect_ratio?: string | null
           conversation_id?: string | null
           created_at?: string | null
           extracted_text?: string | null
           file_size: number
           file_type: string
           filename: string
+          generation_prompt?: string | null
           id?: string
+          is_generated?: boolean | null
           language?: string | null
           ocr_text?: string | null
           storage_path: string
@@ -320,13 +326,16 @@ export type Database = {
         }
         Update: {
           analysis_result?: Json | null
+          aspect_ratio?: string | null
           conversation_id?: string | null
           created_at?: string | null
           extracted_text?: string | null
           file_size?: number
           file_type?: string
           filename?: string
+          generation_prompt?: string | null
           id?: string
+          is_generated?: boolean | null
           language?: string | null
           ocr_text?: string | null
           storage_path?: string
