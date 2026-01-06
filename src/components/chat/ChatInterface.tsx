@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Send, Mic, MicOff, Languages, Bot, Loader2, UserCircle,
-  Zap, BookOpen, Upload, X, FileText, AlertCircle, Globe, Scan, Flame, ChevronDown, ImageIcon
+  Zap, BookOpen, Upload, X, FileText, AlertCircle, Globe, Scan, Flame, ChevronDown, ImageIcon, Sparkles
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -23,12 +23,13 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { analyzeFileContent, formatAnalysisForChat, type FileAnalysis } from '@/lib/fileAnalysis';
 import MessageItem from './MessageItem';
 import StreamingMessage from './StreamingMessage';
-import ImageAIPanel from './ImageAIPanel';
 import useIncrementalStream from '@/hooks/useIncrementalStream';
+import useImageAI from '@/hooks/useImageAI';
 
 // Memory cap: keep only last N messages in state
 const MAX_MESSAGES_IN_MEMORY = 100;
@@ -38,6 +39,7 @@ interface Message {
   role: 'user' | 'assistant';
   content: string;
   created_at: string;
+  imageUrl?: string;
 }
 
 interface ChatInterfaceProps {
@@ -64,12 +66,17 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
   const [ocrResult, setOcrResult] = useState<any>(null);
   const [scrapedContent, setScrapedContent] = useState<any>(null);
   const [isScrapingUrl, setIsScrapingUrl] = useState(false);
-  const [showImageAI, setShowImageAI] = useState(false);
+  const [imageMode, setImageMode] = useState<'off' | 'generate' | 'analyze' | 'edit'>('off');
+  const [uploadedImage, setUploadedImage] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(conversationId);
   const lastMessageRef = useRef<string>('');
+  
+  // Image AI hook
+  const { isProcessing: isImageProcessing, generateImage, analyzeImage, editImage, fileToBase64 } = useImageAI();
   
   // Use the incremental streaming hook for Deep Mode stability
   const {
@@ -209,6 +216,19 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
     } catch (err) {
       toast({ title: "File attached", description: `${file.name} ready for analysis.` });
     }
+  };
+
+  // Handle image upload for Image AI
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !file.type.startsWith('image/')) {
+      toast({ title: "Invalid file", description: "Please upload an image file.", variant: "destructive" });
+      return;
+    }
+
+    const base64 = await fileToBase64(file);
+    setUploadedImage(base64);
+    toast({ title: "Image uploaded", description: "Ready for analysis or editing." });
   };
 
   // Advanced OCR using Gemini Vision
@@ -363,7 +383,85 @@ ${ocrResult.summary}
     return `${fileInfo}\n\n[Document uploaded for analysis. Please extract and analyze the content.]`;
   };
 
+  // Handle Image AI actions
+  const handleImageAction = async () => {
+    if (!input.trim() && imageMode !== 'analyze') return;
+    
+    setIsLoading(true);
+    
+    try {
+      let result;
+      
+      if (imageMode === 'generate') {
+        result = await generateImage(input);
+        if (result?.imageUrl) {
+          // Add to messages
+          const tempId = `img-${Date.now()}`;
+          setMessages(prev => [...prev, {
+            id: `user-${tempId}`,
+            role: 'user',
+            content: `🎨 Generate image: ${input}`,
+            created_at: new Date().toISOString(),
+          }, {
+            id: tempId,
+            role: 'assistant',
+            content: `![Generated Image](${result.imageUrl})\n\n${result.description || 'Image generated successfully'}`,
+            created_at: new Date().toISOString(),
+            imageUrl: result.imageUrl,
+          }]);
+        }
+      } else if (imageMode === 'analyze' && uploadedImage) {
+        result = await analyzeImage(uploadedImage, input || undefined);
+        if (result?.analysis) {
+          const tempId = `img-${Date.now()}`;
+          setMessages(prev => [...prev, {
+            id: `user-${tempId}`,
+            role: 'user',
+            content: `🔍 Analyze image${input ? `: ${input}` : ''}`,
+            created_at: new Date().toISOString(),
+          }, {
+            id: tempId,
+            role: 'assistant',
+            content: result.analysis,
+            created_at: new Date().toISOString(),
+          }]);
+        }
+      } else if (imageMode === 'edit' && uploadedImage) {
+        result = await editImage(uploadedImage, input);
+        if (result?.imageUrl) {
+          const tempId = `img-${Date.now()}`;
+          setMessages(prev => [...prev, {
+            id: `user-${tempId}`,
+            role: 'user',
+            content: `✏️ Edit image: ${input}`,
+            created_at: new Date().toISOString(),
+          }, {
+            id: tempId,
+            role: 'assistant',
+            content: `![Edited Image](${result.imageUrl})\n\n${result.description || 'Image edited successfully'}`,
+            created_at: new Date().toISOString(),
+            imageUrl: result.imageUrl,
+          }]);
+        }
+      }
+      
+      setInput('');
+      setUploadedImage(null);
+      setImageMode('off');
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleSend = async () => {
+    // If in image mode, handle image action
+    if (imageMode !== 'off') {
+      await handleImageAction();
+      return;
+    }
+    
     if (!input.trim() && !uploadedFile) return;
     if (isLoading || isStreaming) return;
 
@@ -519,6 +617,20 @@ ${scrapedContent.content?.substring(0, 15000) || 'No content extracted'}
 
   const personalityIcons = { lawyer: '⚖️', judge: '👨‍⚖️', researcher: '🔍', student: '📚' };
 
+  // Get placeholder text based on mode
+  const getPlaceholder = () => {
+    switch (imageMode) {
+      case 'generate':
+        return 'Describe the image you want to generate...';
+      case 'analyze':
+        return uploadedImage ? 'Ask a question about the image (optional)...' : 'Upload an image first to analyze...';
+      case 'edit':
+        return uploadedImage ? 'Describe how to edit the image...' : 'Upload an image first to edit...';
+      default:
+        return 'Type your question or paste a URL to analyze...';
+    }
+  };
+
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden">
       <ScrollArea className="flex-1 p-4" ref={scrollAreaRef}>
@@ -543,6 +655,7 @@ ${scrapedContent.content?.substring(0, 15000) || 'No content extracted'}
                 <Badge variant="secondary">Document Analysis</Badge>
                 <Badge variant="secondary">Case Law Search</Badge>
                 <Badge variant="secondary">Legal Drafting</Badge>
+                <Badge variant="secondary">Image AI</Badge>
               </div>
             </motion.div>
           ) : (
@@ -594,7 +707,10 @@ ${scrapedContent.content?.substring(0, 15000) || 'No content extracted'}
                 <motion.div className="flex gap-3" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
                   <div className="p-2 rounded-lg bg-primary/20 h-fit"><Bot className="w-5 h-5 text-primary" /></div>
                   <Card className="glass-panel p-4">
-                    <div className="flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /><p className="text-sm">Thinking...</p></div>
+                    <div className="flex items-center gap-2">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <p className="text-sm">{isImageProcessing ? 'Processing image...' : 'Thinking...'}</p>
+                    </div>
                   </Card>
                 </motion.div>
               )}
@@ -606,7 +722,57 @@ ${scrapedContent.content?.substring(0, 15000) || 'No content extracted'}
       </ScrollArea>
 
       <div className="p-4 border-t border-border glass-panel">
-        {/* File Preview with Analysis */}
+        {/* Image Mode Bar - shows when image mode is active */}
+        {imageMode !== 'off' && (
+          <div className="mb-3 p-3 bg-gradient-to-r from-pink-500/10 to-purple-500/10 border border-pink-500/30 rounded-lg">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-gradient-to-br from-pink-500/20 to-purple-500/20 rounded-lg flex items-center justify-center">
+                  {imageMode === 'generate' && <Sparkles className="h-5 w-5 text-pink-500" />}
+                  {imageMode === 'analyze' && <Scan className="h-5 w-5 text-blue-500" />}
+                  {imageMode === 'edit' && <ImageIcon className="h-5 w-5 text-purple-500" />}
+                </div>
+                <div>
+                  <p className="text-sm font-medium">
+                    {imageMode === 'generate' && '🎨 Image Generation Mode'}
+                    {imageMode === 'analyze' && '🔍 Image Analysis Mode'}
+                    {imageMode === 'edit' && '✏️ Image Editing Mode'}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {imageMode === 'generate' && 'Describe the image you want to create'}
+                    {imageMode === 'analyze' && (uploadedImage ? 'Image ready for analysis' : 'Upload an image to analyze')}
+                    {imageMode === 'edit' && (uploadedImage ? 'Image ready for editing' : 'Upload an image to edit')}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {(imageMode === 'analyze' || imageMode === 'edit') && !uploadedImage && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => imageInputRef.current?.click()}
+                    className="text-xs"
+                  >
+                    <Upload className="h-3 w-3 mr-1" />
+                    Upload Image
+                  </Button>
+                )}
+                {uploadedImage && (
+                  <div className="flex items-center gap-2">
+                    <img src={uploadedImage} alt="Uploaded" className="w-10 h-10 rounded object-cover" />
+                    <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setUploadedImage(null)}>
+                      <X className="h-3 w-3" />
+                    </Button>
+                  </div>
+                )}
+                <Button variant="ghost" size="sm" onClick={() => { setImageMode('off'); setUploadedImage(null); }}>
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* URL Scraping Indicator */}
         {isScrapingUrl && (
           <div className="mb-3 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
@@ -714,7 +880,7 @@ ${scrapedContent.content?.substring(0, 15000) || 'No content extracted'}
           </div>
         )}
 
-        {/* Selectors */}
+        {/* Selectors Row with Image AI Dropdown */}
         <div className="flex items-center gap-2 mb-3 flex-wrap">
           <Select value={personality} onValueChange={(v: any) => setPersonality(v)}>
             <SelectTrigger className="w-auto min-w-[130px] h-8 text-xs">
@@ -738,6 +904,62 @@ ${scrapedContent.content?.substring(0, 15000) || 'No content extracted'}
               <SelectItem value="mixed">🌐 Mixed</SelectItem>
             </SelectContent>
           </Select>
+
+          {/* Image AI Dropdown in the selector row */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button 
+                variant="outline" 
+                size="sm"
+                className={`h-8 text-xs gap-1 ${imageMode !== 'off' ? 'bg-gradient-to-r from-pink-500/20 to-purple-500/20 border-pink-500/50' : ''}`}
+              >
+                <ImageIcon className={`h-3 w-3 ${imageMode !== 'off' ? 'text-pink-500' : ''}`} />
+                Image AI
+                <ChevronDown className="h-3 w-3 opacity-50" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-48">
+              <DropdownMenuItem 
+                onClick={() => setImageMode('generate')}
+                className={`gap-2 ${imageMode === 'generate' ? 'bg-pink-500/10' : ''}`}
+              >
+                <Sparkles className="h-4 w-4 text-pink-500" />
+                <div className="flex flex-col">
+                  <span className="font-medium">Generate Image</span>
+                  <span className="text-xs text-muted-foreground">Create from text</span>
+                </div>
+              </DropdownMenuItem>
+              <DropdownMenuItem 
+                onClick={() => setImageMode('analyze')}
+                className={`gap-2 ${imageMode === 'analyze' ? 'bg-blue-500/10' : ''}`}
+              >
+                <Scan className="h-4 w-4 text-blue-500" />
+                <div className="flex flex-col">
+                  <span className="font-medium">Analyze Image</span>
+                  <span className="text-xs text-muted-foreground">Extract insights</span>
+                </div>
+              </DropdownMenuItem>
+              <DropdownMenuItem 
+                onClick={() => setImageMode('edit')}
+                className={`gap-2 ${imageMode === 'edit' ? 'bg-purple-500/10' : ''}`}
+              >
+                <ImageIcon className="h-4 w-4 text-purple-500" />
+                <div className="flex flex-col">
+                  <span className="font-medium">Edit Image</span>
+                  <span className="text-xs text-muted-foreground">Modify with AI</span>
+                </div>
+              </DropdownMenuItem>
+              {imageMode !== 'off' && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => { setImageMode('off'); setUploadedImage(null); }}>
+                    <X className="h-4 w-4 mr-2" />
+                    Exit Image Mode
+                  </DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
 
         {/* Input Area */}
@@ -754,23 +976,8 @@ ${scrapedContent.content?.substring(0, 15000) || 'No content extracted'}
               </Tooltip>
             </TooltipProvider>
             
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button 
-                    variant="outline" 
-                    size="icon" 
-                    onClick={() => setShowImageAI(!showImageAI)}
-                    className={showImageAI ? 'bg-pink-500/20 border-pink-500/50' : ''}
-                  >
-                    <ImageIcon className={`h-4 w-4 ${showImageAI ? 'text-pink-500' : ''}`} />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Image AI (Generate, Analyze, Edit)</TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-            
             <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileUpload} accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png,.xlsx,.xls,.zip,.webp,.bmp,.tiff,.gif" />
+            <input ref={imageInputRef} type="file" className="hidden" onChange={handleImageUpload} accept="image/*" />
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -827,38 +1034,34 @@ ${scrapedContent.content?.substring(0, 15000) || 'No content extracted'}
           </div>
 
           <Textarea 
-            placeholder="Type your question or paste a URL to analyze..." 
+            placeholder={getPlaceholder()} 
             value={input} 
             onChange={(e) => setInput(e.target.value)} 
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }}} 
             className="min-h-[60px] max-h-[120px] resize-none" 
-            disabled={isLoading || isScrapingUrl} 
+            disabled={isLoading || isScrapingUrl || isImageProcessing} 
           />
 
           <div className="flex flex-col gap-2">
             <Button variant="outline" size="icon" onClick={() => toast({ title: "Voice input", description: "Coming soon!" })} className={isListening ? 'bg-primary text-primary-foreground' : ''}>
               {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
             </Button>
-            <Button size="icon" onClick={handleSend} disabled={(!input.trim() && !uploadedFile) || isLoading || isScrapingUrl} className="glow-button bg-gradient-to-r from-primary to-primary-glow">
-              <Send className="h-4 w-4" />
+            <Button 
+              size="icon" 
+              onClick={handleSend} 
+              disabled={
+                (imageMode === 'off' && !input.trim() && !uploadedFile) || 
+                (imageMode === 'generate' && !input.trim()) ||
+                ((imageMode === 'analyze' || imageMode === 'edit') && !uploadedImage) ||
+                isLoading || isScrapingUrl || isImageProcessing
+              } 
+              className={`glow-button ${imageMode !== 'off' ? 'bg-gradient-to-r from-pink-500 to-purple-500' : 'bg-gradient-to-r from-primary to-primary-glow'}`}
+            >
+              {isImageProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
             </Button>
           </div>
         </div>
       </div>
-
-      {/* Image AI Panel */}
-      <ImageAIPanel
-        isOpen={showImageAI}
-        onClose={() => setShowImageAI(false)}
-        onImageGenerated={(imageUrl, description) => {
-          // Could add image to conversation context
-          toast({ title: 'Image Generated', description: description.slice(0, 100) });
-        }}
-        onImageAnalyzed={(analysis) => {
-          // Could add analysis to conversation context
-          setInput(prev => prev ? `${prev}\n\n[Image Analysis]\n${analysis}` : `[Image Analysis]\n${analysis}`);
-        }}
-      />
     </div>
   );
 };

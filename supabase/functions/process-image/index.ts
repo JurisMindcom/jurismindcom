@@ -14,15 +14,21 @@ interface ImageRequest {
   editInstructions?: string;
 }
 
-// Decrypt API key (simple XOR)
+// Decrypt API key (simple XOR) - matches the encryption in AddImageModel.tsx
 function decryptApiKey(encrypted: string): string {
-  const salt = 'jurismind_image_key_2024';
-  const decoded = atob(encrypted);
-  let decrypted = '';
-  for (let i = 0; i < decoded.length; i++) {
-    decrypted += String.fromCharCode(decoded.charCodeAt(i) ^ salt.charCodeAt(i % salt.length));
+  try {
+    const salt = 'jurismind_image_key_2024';
+    const decoded = atob(encrypted);
+    let decrypted = '';
+    for (let i = 0; i < decoded.length; i++) {
+      decrypted += String.fromCharCode(decoded.charCodeAt(i) ^ salt.charCodeAt(i % salt.length));
+    }
+    return decrypted;
+  } catch (err) {
+    console.error('Decryption error:', err);
+    // If decryption fails, the key might be stored plainly
+    return encrypted;
   }
-  return decrypted;
 }
 
 // Get active image model from database
@@ -36,14 +42,19 @@ async function getActiveImageModel(supabaseUrl: string, supabaseKey: string) {
       .single();
 
     if (error || !data) {
-      console.log('No active image model found in DB, using fallback');
+      console.log('No active image model found in DB, will use Lovable AI Gateway');
       return null;
     }
 
+    console.log('Found active image model:', data.model_name, 'Provider:', data.provider);
+    
+    const apiKey = decryptApiKey(data.api_key_encrypted);
+    console.log('API key decrypted, length:', apiKey.length);
+
     return {
-      provider: data.provider,
+      provider: data.provider?.toLowerCase() || 'openrouter',
       modelName: data.model_name,
-      apiKey: decryptApiKey(data.api_key_encrypted),
+      apiKey: apiKey,
     };
   } catch (err) {
     console.error('Error fetching active image model:', err);
@@ -51,9 +62,9 @@ async function getActiveImageModel(supabaseUrl: string, supabaseKey: string) {
   }
 }
 
-// Generate image with Google Gemini
-async function generateWithGemini(apiKey: string, prompt: string) {
-  console.log('Generating image with Gemini...');
+// Generate image with Lovable AI Gateway (no API key needed)
+async function generateWithLovableGateway(prompt: string) {
+  console.log('Generating image with Lovable AI Gateway (google/gemini-2.5-flash-image-preview)...');
   
   const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
     method: 'POST',
@@ -73,7 +84,9 @@ async function generateWithGemini(apiKey: string, prompt: string) {
   });
 
   if (!response.ok) {
-    throw new Error(`Gemini API error: ${response.status}`);
+    const errorText = await response.text();
+    console.error('Lovable Gateway error:', errorText);
+    throw new Error(`Lovable Gateway API error: ${response.status}`);
   }
 
   const data = await response.json();
@@ -86,7 +99,46 @@ async function generateWithGemini(apiKey: string, prompt: string) {
     };
   }
   
-  throw new Error('No image generated');
+  throw new Error('No image generated from Lovable Gateway');
+}
+
+// Generate image with OpenRouter API (supports many models including Seedream)
+async function generateWithOpenRouter(apiKey: string, modelName: string, prompt: string) {
+  console.log(`Generating image with OpenRouter (${modelName})...`);
+  
+  const response = await fetch('https://openrouter.ai/api/v1/images/generations', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': 'https://jurismind.app',
+      'X-Title': 'JurisMind',
+    },
+    body: JSON.stringify({
+      model: modelName.toLowerCase().includes('seedream') ? 'bytedance/seedream-4.5' : modelName,
+      prompt: prompt,
+      n: 1,
+      size: '1024x1024',
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error('OpenRouter error:', errorText);
+    throw new Error(`OpenRouter API error: ${response.status} - ${errorText}`);
+  }
+
+  const data = await response.json();
+  console.log('OpenRouter response:', JSON.stringify(data).slice(0, 500));
+  
+  if (data.data && data.data[0]) {
+    return {
+      imageUrl: data.data[0].url || `data:image/png;base64,${data.data[0].b64_json}`,
+      description: data.data[0].revised_prompt || 'Image generated successfully',
+    };
+  }
+  
+  throw new Error('No image generated from OpenRouter');
 }
 
 // Generate image with OpenAI DALL-E
@@ -109,6 +161,8 @@ async function generateWithOpenAI(apiKey: string, prompt: string) {
   });
 
   if (!response.ok) {
+    const errorText = await response.text();
+    console.error('OpenAI error:', errorText);
     throw new Error(`OpenAI API error: ${response.status}`);
   }
 
@@ -120,9 +174,24 @@ async function generateWithOpenAI(apiKey: string, prompt: string) {
   };
 }
 
-// Analyze image with Gemini Vision
-async function analyzeWithGemini(apiKey: string, imageBase64: string, prompt: string) {
-  console.log('Analyzing image with Gemini Vision...');
+// Generate with generic API (tries multiple approaches)
+async function generateWithCustomAPI(apiKey: string, modelName: string, prompt: string) {
+  console.log(`Generating with custom model: ${modelName}`);
+  
+  // Try OpenRouter first as it supports many models
+  try {
+    return await generateWithOpenRouter(apiKey, modelName, prompt);
+  } catch (err) {
+    console.log('OpenRouter failed, trying direct approach...');
+  }
+  
+  // Fallback to Lovable Gateway
+  return await generateWithLovableGateway(prompt);
+}
+
+// Analyze image with Lovable AI Gateway
+async function analyzeWithLovableGateway(imageBase64: string, prompt: string) {
+  console.log('Analyzing image with Lovable AI Gateway...');
   
   const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
     method: 'POST',
@@ -144,7 +213,7 @@ async function analyzeWithGemini(apiKey: string, imageBase64: string, prompt: st
   });
 
   if (!response.ok) {
-    throw new Error(`Gemini Vision API error: ${response.status}`);
+    throw new Error(`Lovable Gateway Vision API error: ${response.status}`);
   }
 
   const data = await response.json();
@@ -190,9 +259,9 @@ async function analyzeWithOpenAI(apiKey: string, imageBase64: string, prompt: st
   };
 }
 
-// Edit image with Gemini
-async function editWithGemini(apiKey: string, imageBase64: string, editInstructions: string) {
-  console.log('Editing image with Gemini...');
+// Edit image with Lovable AI Gateway
+async function editWithLovableGateway(imageBase64: string, editInstructions: string) {
+  console.log('Editing image with Lovable AI Gateway...');
   
   const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
     method: 'POST',
@@ -215,7 +284,7 @@ async function editWithGemini(apiKey: string, imageBase64: string, editInstructi
   });
 
   if (!response.ok) {
-    throw new Error(`Gemini Edit API error: ${response.status}`);
+    throw new Error(`Lovable Gateway Edit API error: ${response.status}`);
   }
 
   const data = await response.json();
@@ -276,30 +345,39 @@ serve(async (req) => {
 
     console.log(`Processing image request: ${action}`);
 
-    // Get active image model
+    // Get active image model from database
     const activeModel = await getActiveImageModel(supabaseUrl, supabaseKey);
     
-    // Determine provider and API key
-    let provider = activeModel?.provider || 'google';
-    let apiKey = activeModel?.apiKey || '';
-
-    // Fallback to Lovable gateway if no API key
-    const useLovableGateway = !apiKey || provider === 'google';
-
     let result;
+    let providerName = 'Lovable AI Gateway';
+
+    // Determine how to handle the request based on active model
+    const hasCustomModel = activeModel && activeModel.apiKey && activeModel.apiKey.length > 10;
+    
+    if (hasCustomModel) {
+      console.log(`Using custom model: ${activeModel.modelName} (${activeModel.provider})`);
+      providerName = activeModel.modelName;
+    } else {
+      console.log('No custom model configured, using Lovable AI Gateway');
+    }
 
     switch (action) {
       case 'generate':
         if (!prompt) {
           throw new Error('Prompt is required for image generation');
         }
-        if (useLovableGateway || provider === 'google') {
-          result = await generateWithGemini(apiKey, prompt);
-        } else if (provider === 'openai') {
-          result = await generateWithOpenAI(apiKey, prompt);
+        
+        if (hasCustomModel) {
+          const provider = activeModel.provider.toLowerCase();
+          
+          if (provider === 'openai' || activeModel.modelName.toLowerCase().includes('dall')) {
+            result = await generateWithOpenAI(activeModel.apiKey, prompt);
+          } else {
+            // Use OpenRouter for other models (Seedream, Midjourney, etc.)
+            result = await generateWithCustomAPI(activeModel.apiKey, activeModel.modelName, prompt);
+          }
         } else {
-          // Default to Gemini for unsupported providers
-          result = await generateWithGemini(apiKey, prompt);
+          result = await generateWithLovableGateway(prompt);
         }
         break;
 
@@ -307,12 +385,11 @@ serve(async (req) => {
         if (!imageBase64) {
           throw new Error('Image is required for analysis');
         }
-        if (useLovableGateway || provider === 'google') {
-          result = await analyzeWithGemini(apiKey, imageBase64, prompt);
-        } else if (provider === 'openai') {
-          result = await analyzeWithOpenAI(apiKey, imageBase64, prompt);
+        
+        if (hasCustomModel && activeModel.provider.toLowerCase() === 'openai') {
+          result = await analyzeWithOpenAI(activeModel.apiKey, imageBase64, prompt);
         } else {
-          result = await analyzeWithGemini(apiKey, imageBase64, prompt);
+          result = await analyzeWithLovableGateway(imageBase64, prompt);
         }
         break;
 
@@ -320,12 +397,11 @@ serve(async (req) => {
         if (!imageBase64 || !editInstructions) {
           throw new Error('Image and edit instructions are required');
         }
-        if (useLovableGateway || provider === 'google') {
-          result = await editWithGemini(apiKey, imageBase64, editInstructions);
-        } else if (provider === 'openai') {
-          result = await editWithOpenAI(apiKey, imageBase64, editInstructions);
+        
+        if (hasCustomModel && activeModel.provider.toLowerCase() === 'openai') {
+          result = await editWithOpenAI(activeModel.apiKey, imageBase64, editInstructions);
         } else {
-          result = await editWithGemini(apiKey, imageBase64, editInstructions);
+          result = await editWithLovableGateway(imageBase64, editInstructions);
         }
         break;
 
@@ -337,7 +413,7 @@ serve(async (req) => {
       JSON.stringify({
         success: true,
         action,
-        provider: activeModel?.modelName || 'Lovable AI Gateway',
+        provider: providerName,
         ...result,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
