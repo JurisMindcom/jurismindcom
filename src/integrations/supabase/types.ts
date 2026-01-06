@@ -342,6 +342,39 @@ export type Database = {
           },
         ]
       }
+      image_ai_models: {
+        Row: {
+          api_key_encrypted: string
+          created_at: string
+          created_by: string | null
+          id: string
+          is_active: boolean
+          model_name: string
+          provider: string
+          updated_at: string
+        }
+        Insert: {
+          api_key_encrypted: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_active?: boolean
+          model_name: string
+          provider?: string
+          updated_at?: string
+        }
+        Update: {
+          api_key_encrypted?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_active?: boolean
+          model_name?: string
+          provider?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       law_source_sync_log: {
         Row: {
           error_message: string | null

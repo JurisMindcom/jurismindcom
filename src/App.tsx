@@ -16,6 +16,7 @@ import CaseLaw from "./pages/CaseLaw";
 import Documents from "./pages/Documents";
 import Admin from "./pages/Admin";
 import AddModel from "./pages/AddModel";
+import AddImageModel from "./pages/AddImageModel";
 import Settings from "./pages/Settings";
 import RecentConversations from "./pages/RecentConversations";
 import LawSourceManagement from "./pages/LawSourceManagement";
@@ -45,6 +46,7 @@ const App = () => (
                 <Route path="/documents" element={<Documents />} />
                 <Route path="/admin" element={<Admin />} />
                 <Route path="/admin/add-model" element={<AddModel />} />
+                <Route path="/admin/add-image-model" element={<AddImageModel />} />
                 <Route path="/admin/law-sources" element={<LawSourceManagement />} />
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/recent-conversations" element={<RecentConversations />} />

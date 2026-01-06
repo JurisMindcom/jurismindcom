@@ -11,3 +11,6 @@ verify_jwt = false
 
 [functions.analyze-document-ocr]
 verify_jwt = false
+
+[functions.process-image]
+verify_jwt = false
