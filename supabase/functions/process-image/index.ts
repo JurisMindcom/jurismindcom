@@ -12,6 +12,10 @@ interface ImageRequest {
   prompt: string;
   imageBase64?: string;
   editInstructions?: string;
+  imageConfig?: {
+    aspectRatio?: string; // e.g. 1:1, 16:9
+    imageSize?: '1K' | '2K' | '4K';
+  };
 }
 
 // Decrypt API key (simple XOR) - matches the encryption in AddImageModel.tsx
@@ -63,13 +67,15 @@ async function getActiveImageModel(supabaseUrl: string, supabaseKey: string) {
 }
 
 // Generate image with Lovable AI Gateway (no API key needed)
-async function generateWithLovableGateway(prompt: string) {
+async function generateWithLovableGateway(prompt: string, aspectRatio?: string) {
   console.log('Generating image with Lovable AI Gateway (google/gemini-2.5-flash-image-preview)...');
 
   const lovableApiKey = Deno.env.get('LOVABLE_API_KEY');
   if (!lovableApiKey) {
     throw new Error('LOVABLE_API_KEY is not configured on the backend');
   }
+
+  const ratioHint = aspectRatio ? `\nAspect ratio: ${aspectRatio}.` : '';
 
   const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
     method: 'POST',
@@ -82,7 +88,7 @@ async function generateWithLovableGateway(prompt: string) {
       messages: [
         {
           role: 'user',
-          content: `Generate a high-quality image: ${prompt}`
+          content: `Generate a high-quality image: ${prompt}${ratioHint}`
         }
       ],
       modalities: ['image', 'text'],
@@ -97,22 +103,42 @@ async function generateWithLovableGateway(prompt: string) {
 
   const data = await response.json();
   const images = data.choices?.[0]?.message?.images;
-  
+
   if (images && images.length > 0) {
     return {
       imageUrl: images[0].image_url?.url,
       description: data.choices?.[0]?.message?.content || 'Image generated successfully',
     };
   }
-  
+
   throw new Error('No image generated from Lovable Gateway');
 }
 
-// Generate image with OpenRouter API (supports many models including Seedream)
-async function generateWithOpenRouter(apiKey: string, modelName: string, prompt: string) {
+// Generate image with OpenRouter API (image generation is done via /chat/completions + modalities)
+async function generateWithOpenRouter(
+  apiKey: string,
+  modelName: string,
+  prompt: string,
+  imageConfig?: { aspectRatio?: string; imageSize?: '1K' | '2K' | '4K' }
+) {
   console.log(`Generating image with OpenRouter (${modelName})...`);
-  
-  const response = await fetch('https://openrouter.ai/api/v1/images/generations', {
+
+  const body: Record<string, unknown> = {
+    model: modelName.toLowerCase().includes('seedream') ? 'bytedance/seedream-4.5' : modelName,
+    messages: [{ role: 'user', content: prompt }],
+    modalities: ['image', 'text'],
+    stream: false,
+  };
+
+  // OpenRouter only supports image_config for Gemini image-generation models
+  if (modelName.toLowerCase().includes('gemini') && imageConfig?.aspectRatio) {
+    body.image_config = {
+      aspect_ratio: imageConfig.aspectRatio,
+      ...(imageConfig.imageSize ? { image_size: imageConfig.imageSize } : {}),
+    };
+  }
+
+  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${apiKey}`,
@@ -120,12 +146,7 @@ async function generateWithOpenRouter(apiKey: string, modelName: string, prompt:
       'HTTP-Referer': 'https://jurismind.app',
       'X-Title': 'JurisMind',
     },
-    body: JSON.stringify({
-      model: modelName.toLowerCase().includes('seedream') ? 'bytedance/seedream-4.5' : modelName,
-      prompt: prompt,
-      n: 1,
-      size: '1024x1024',
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
@@ -135,15 +156,20 @@ async function generateWithOpenRouter(apiKey: string, modelName: string, prompt:
   }
 
   const data = await response.json();
-  console.log('OpenRouter response:', JSON.stringify(data).slice(0, 500));
-  
-  if (data.data && data.data[0]) {
+  const message = data.choices?.[0]?.message;
+
+  const url =
+    message?.images?.[0]?.image_url?.url ||
+    message?.images?.[0]?.imageUrl?.url ||
+    message?.images?.[0]?.url;
+
+  if (url) {
     return {
-      imageUrl: data.data[0].url || `data:image/png;base64,${data.data[0].b64_json}`,
-      description: data.data[0].revised_prompt || 'Image generated successfully',
+      imageUrl: url,
+      description: message?.content || 'Image generated successfully',
     };
   }
-  
+
   throw new Error('No image generated from OpenRouter');
 }
 
@@ -181,18 +207,23 @@ async function generateWithOpenAI(apiKey: string, prompt: string) {
 }
 
 // Generate with generic API (tries multiple approaches)
-async function generateWithCustomAPI(apiKey: string, modelName: string, prompt: string) {
+async function generateWithCustomAPI(
+  apiKey: string,
+  modelName: string,
+  prompt: string,
+  imageConfig?: { aspectRatio?: string; imageSize?: '1K' | '2K' | '4K' }
+) {
   console.log(`Generating with custom model: ${modelName}`);
-  
+
   // Try OpenRouter first as it supports many models
   try {
-    return await generateWithOpenRouter(apiKey, modelName, prompt);
-  } catch (err) {
-    console.log('OpenRouter failed, trying direct approach...');
+    return await generateWithOpenRouter(apiKey, modelName, prompt, imageConfig);
+  } catch (err: any) {
+    console.log('OpenRouter failed, trying Lovable AI Gateway...', err?.message || String(err));
   }
-  
+
   // Fallback to Lovable Gateway
-  return await generateWithLovableGateway(prompt);
+  return await generateWithLovableGateway(prompt, imageConfig?.aspectRatio);
 }
 
 // Analyze image with Lovable AI Gateway
@@ -359,7 +390,7 @@ serve(async (req) => {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     
-    const { action, prompt, imageBase64, editInstructions }: ImageRequest = await req.json();
+    const { action, prompt, imageBase64, editInstructions, imageConfig }: ImageRequest = await req.json();
 
     console.log(`Processing image request: ${action}`);
 
@@ -387,15 +418,15 @@ serve(async (req) => {
         
         if (hasCustomModel) {
           const provider = activeModel.provider.toLowerCase();
-          
+
           if (provider === 'openai' || activeModel.modelName.toLowerCase().includes('dall')) {
             result = await generateWithOpenAI(activeModel.apiKey, prompt);
           } else {
-            // Use OpenRouter for other models (Seedream, Midjourney, etc.)
-            result = await generateWithCustomAPI(activeModel.apiKey, activeModel.modelName, prompt);
+            // Use OpenRouter /chat/completions for other models (Seedream, Gemini image models, etc.)
+            result = await generateWithCustomAPI(activeModel.apiKey, activeModel.modelName, prompt, imageConfig);
           }
         } else {
-          result = await generateWithLovableGateway(prompt);
+          result = await generateWithLovableGateway(prompt, imageConfig?.aspectRatio);
         }
         break;
 

@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import { motion } from 'framer-motion';
-import { Bot, User, Copy, Check } from 'lucide-react';
+import { Bot, User, Copy, Check, Loader2, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Tooltip,
@@ -17,12 +17,33 @@ interface MessageItemProps {
   index: number;
   copiedId: string | null;
   onCopy: (text: string, id: string) => void;
+  imageUrl?: string;
+  pending?: boolean;
 }
 
+type ParsedImage = {
+  url: string;
+  alt?: string;
+  rest: string;
+} | null;
+
+const parseFirstMarkdownImage = (content: string): ParsedImage => {
+  // Matches: ![alt](url)
+  const match = content.match(/!\[([^\]]*)\]\(([^\)]+)\)/);
+  if (!match) return null;
+  const alt = match[1] || undefined;
+  const url = match[2];
+  const rest = content.replace(match[0], '').trim();
+  return { url, alt, rest };
+};
+
 // Memoized message component to prevent unnecessary re-renders
-const MessageItem = memo(({ id, role, content, created_at, index, copiedId, onCopy }: MessageItemProps) => {
+const MessageItem = memo(({ id, role, content, created_at, index, copiedId, onCopy, imageUrl, pending }: MessageItemProps) => {
+  const parsed = role === 'assistant' ? parseFirstMarkdownImage(content) : null;
+  const resolvedImageUrl = imageUrl || parsed?.url;
+  const resolvedText = parsed ? parsed.rest : content;
+
   if (role === 'assistant') {
-    // ChatGPT-style: Full width, no box, clean paragraph
     return (
       <motion.div
         initial={{ opacity: 0, y: 10 }}
@@ -34,25 +55,57 @@ const MessageItem = memo(({ id, role, content, created_at, index, copiedId, onCo
           <div className="p-2 rounded-full bg-primary/20 shrink-0 mt-1">
             <Bot className="w-5 h-5 text-primary" />
           </div>
-          
+
           <div className="flex-1 min-w-0">
-            <div className="prose prose-sm dark:prose-invert max-w-none">
-              <p className="text-foreground whitespace-pre-wrap break-words leading-relaxed m-0">
-                {content}
-              </p>
-            </div>
-            
+            {pending ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span>{resolvedText || 'Processing image...'}</span>
+              </div>
+            ) : (
+              <>
+                {resolvedImageUrl && (
+                  <div className="mt-1 w-full max-w-[720px]">
+                    <div className="rounded-xl border border-border bg-card overflow-hidden shadow-sm">
+                      <img
+                        src={resolvedImageUrl}
+                        alt={parsed?.alt || 'Generated image'}
+                        loading="lazy"
+                        className="w-full h-auto block"
+                      />
+                    </div>
+                    <div className="mt-2 flex items-center gap-2">
+                      <Button asChild size="sm" variant="secondary">
+                        <a href={resolvedImageUrl} download={`jurismind-image-${id}.png`}>
+                          <Download className="h-4 w-4 mr-1" />
+                          Download
+                        </a>
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {resolvedText && (
+                  <div className="prose prose-sm dark:prose-invert max-w-none mt-3">
+                    <p className="text-foreground whitespace-pre-wrap break-words leading-relaxed m-0">
+                      {resolvedText}
+                    </p>
+                  </div>
+                )}
+              </>
+            )}
+
             <div className="flex items-center gap-3 mt-3 opacity-0 group-hover:opacity-100 transition-opacity">
               <span className="text-xs text-muted-foreground">
                 {new Date(created_at).toLocaleTimeString()}
               </span>
-              
+
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button 
-                      size="icon" 
-                      variant="ghost" 
+                    <Button
+                      size="icon"
+                      variant="ghost"
                       className="h-7 w-7"
                       onClick={() => onCopy(content, id)}
                     >
@@ -88,9 +141,9 @@ const MessageItem = memo(({ id, role, content, created_at, index, copiedId, onCo
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button 
-                  size="icon" 
-                  variant="ghost" 
+                <Button
+                  size="icon"
+                  variant="ghost"
                   className="h-7 w-7"
                   onClick={() => onCopy(content, id)}
                 >
@@ -102,7 +155,7 @@ const MessageItem = memo(({ id, role, content, created_at, index, copiedId, onCo
           </TooltipProvider>
         </div>
       </div>
-      
+
       <div className="p-2 rounded-full bg-primary/20 h-fit shrink-0">
         <User className="w-5 h-5 text-primary" />
       </div>
@@ -112,10 +165,13 @@ const MessageItem = memo(({ id, role, content, created_at, index, copiedId, onCo
   return (
     prevProps.id === nextProps.id &&
     prevProps.content === nextProps.content &&
-    prevProps.copiedId === nextProps.copiedId
+    prevProps.copiedId === nextProps.copiedId &&
+    prevProps.imageUrl === nextProps.imageUrl &&
+    prevProps.pending === nextProps.pending
   );
 });
 
 MessageItem.displayName = 'MessageItem';
 
 export default MessageItem;
+
