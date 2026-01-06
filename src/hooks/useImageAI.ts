@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useToast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
 
 interface ImageResult {
   success: boolean;
@@ -26,34 +27,35 @@ export const useImageAI = () => {
     setCurrentAction(action);
 
     try {
-      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/process-image`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
+      const { data, error } = await supabase.functions.invoke('process-image', {
+        body: {
           action,
           prompt,
           imageBase64,
           editInstructions,
-        }),
+        },
       });
 
-      if (!response.ok) {
-        throw new Error(`Image processing failed: ${response.status}`);
+      if (error) {
+        throw new Error(error.message || 'Image processing failed');
       }
 
-      const result: ImageResult = await response.json();
+      const result = data as ImageResult;
 
-      if (result.success) {
+      if (result?.success) {
         toast({
-          title: action === 'generate' ? 'Image Generated' : action === 'analyze' ? 'Image Analyzed' : 'Image Edited',
+          title:
+            action === 'generate'
+              ? 'Image Generated'
+              : action === 'analyze'
+                ? 'Image Analyzed'
+                : 'Image Edited',
           description: `Using ${result.provider || 'AI'} model`,
         });
         return result;
-      } else {
-        throw new Error(result.error || 'Image processing failed');
       }
+
+      throw new Error(result?.error || 'Image processing failed');
     } catch (error: any) {
       console.error('Image AI error:', error);
       toast({
@@ -68,19 +70,14 @@ export const useImageAI = () => {
     }
   };
 
-  const generateImage = async (prompt: string) => {
-    return processImage('generate', prompt);
-  };
+  const generateImage = async (prompt: string) => processImage('generate', prompt);
 
-  const analyzeImage = async (imageBase64: string, prompt?: string) => {
-    return processImage('analyze', prompt || 'Analyze this image in detail', imageBase64);
-  };
+  const analyzeImage = async (imageBase64: string, prompt?: string) =>
+    processImage('analyze', prompt || 'Analyze this image in detail', imageBase64);
 
-  const editImage = async (imageBase64: string, editInstructions: string) => {
-    return processImage('edit', '', imageBase64, editInstructions);
-  };
+  const editImage = async (imageBase64: string, editInstructions: string) =>
+    processImage('edit', '', imageBase64, editInstructions);
 
-  // Convert file to base64
   const fileToBase64 = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -101,3 +98,4 @@ export const useImageAI = () => {
 };
 
 export default useImageAI;
+
