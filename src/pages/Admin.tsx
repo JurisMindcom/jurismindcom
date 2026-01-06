@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import { 
   Scale, ArrowLeft, Users, MessageSquare, FileText, Settings,
   Shield, Activity, Search, Download, Eye, Calendar, TrendingUp,
-  Loader2, Brain, ChevronLeft, Database, Zap, Key
+  Loader2, Brain, ChevronLeft, Database, Zap, Key, Bot, Plus, Trash2, Edit, CheckCircle2
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -13,7 +13,8 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 
@@ -53,6 +54,16 @@ interface Memory {
   created_at: string;
 }
 
+interface AIModel {
+  id: string;
+  model_name: string;
+  provider: string;
+  api_key_encrypted: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 const Admin = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -68,6 +79,12 @@ const Admin = () => {
   });
   const [searchQuery, setSearchQuery] = useState('');
   const [activeApiKey, setActiveApiKey] = useState<1 | 2>(1);
+  
+  // AI Models State
+  const [aiModels, setAiModels] = useState<AIModel[]>([]);
+  const [activeModel, setActiveModel] = useState<AIModel | null>(null);
+  const [loadingModels, setLoadingModels] = useState(false);
+  const [deleteModelId, setDeleteModelId] = useState<string | null>(null);
   
   // User Profile Modal State
   const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null);
@@ -120,7 +137,69 @@ const Admin = () => {
 
     setIsAdmin(true);
     await fetchAllData();
+    await fetchAIModels();
     setIsLoading(false);
+  };
+
+  const fetchAIModels = async () => {
+    setLoadingModels(true);
+    try {
+      const { data, error } = await supabase
+        .from('ai_models')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      if (data) {
+        setAiModels(data as AIModel[]);
+        const active = data.find((m: AIModel) => m.is_active);
+        if (active) setActiveModel(active as AIModel);
+      }
+    } catch (error) {
+      console.error('Error fetching AI models:', error);
+    } finally {
+      setLoadingModels(false);
+    }
+  };
+
+  const setModelActive = async (modelId: string) => {
+    try {
+      const { error } = await supabase
+        .from('ai_models')
+        .update({ is_active: true })
+        .eq('id', modelId);
+
+      if (error) throw error;
+
+      await fetchAIModels();
+      toast({ title: "Model Activated", description: "The selected model is now active and will be used for all AI requests." });
+    } catch (error: any) {
+      console.error('Error setting active model:', error);
+      toast({ title: "Error", description: "Failed to activate model.", variant: "destructive" });
+    }
+  };
+
+  const deleteModel = async (modelId: string) => {
+    try {
+      const { error } = await supabase
+        .from('ai_models')
+        .delete()
+        .eq('id', modelId);
+
+      if (error) throw error;
+
+      await fetchAIModels();
+      setDeleteModelId(null);
+      toast({ title: "Model Deleted", description: "The model has been removed successfully." });
+    } catch (error: any) {
+      console.error('Error deleting model:', error);
+      toast({ title: "Error", description: "Failed to delete model.", variant: "destructive" });
+    }
+  };
+
+  const maskApiKey = (encrypted: string): string => {
+    return '••••••••••••' + encrypted.slice(-4);
   };
 
   const fetchAllData = async () => {
@@ -397,123 +476,230 @@ const Admin = () => {
 
             {/* Settings Tab */}
             <TabsContent value="settings">
-              <Card className="p-6 glass-panel">
-                <h2 className="text-xl font-bold mb-6">System Settings</h2>
-                
-                <div className="space-y-6">
-                  <div className="p-4 rounded-lg bg-secondary/50">
+              <div className="space-y-6">
+                {/* Active Model Status Banner */}
+                <Card className="p-6 glass-panel border-primary/30 bg-gradient-to-br from-primary/10 to-background">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <div className="p-3 rounded-xl bg-primary/20 animate-pulse">
+                        <Bot className="w-8 h-8 text-primary" />
+                      </div>
+                      <div>
+                        <p className="text-sm text-muted-foreground">Currently Active Model</p>
+                        <h2 className="text-2xl font-bold flex items-center gap-2">
+                          {activeModel ? (
+                            <>
+                              <span className="text-primary">{activeModel.model_name}</span>
+                              <Badge className="bg-green-500/20 text-green-400 border-green-500/30">
+                                <Zap className="w-3 h-3 mr-1" />
+                                Running
+                              </Badge>
+                            </>
+                          ) : (
+                            <span className="text-muted-foreground">No model active</span>
+                          )}
+                        </h2>
+                        {activeModel && (
+                          <p className="text-sm text-muted-foreground mt-1">
+                            Provider: {activeModel.provider} • API Key: {maskApiKey(activeModel.api_key_encrypted)}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <Button onClick={() => navigate('/admin/add-model')} size="lg">
+                      <Plus className="mr-2 h-5 w-5" />
+                      Add New Model
+                    </Button>
+                  </div>
+                </Card>
+
+                {/* AI Models Management */}
+                <Card className="p-6 glass-panel">
+                  <div className="flex items-center justify-between mb-6">
+                    <div className="flex items-center gap-2">
+                      <Bot className="w-5 h-5 text-primary" />
+                      <h3 className="text-xl font-bold">AI Models</h3>
+                    </div>
+                    <Badge variant="secondary">{aiModels.length} Model{aiModels.length !== 1 ? 's' : ''}</Badge>
+                  </div>
+
+                  {loadingModels ? (
+                    <div className="flex items-center justify-center py-12">
+                      <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                    </div>
+                  ) : aiModels.length === 0 ? (
+                    <div className="text-center py-12">
+                      <Bot className="w-16 h-16 text-muted-foreground mx-auto mb-4 opacity-50" />
+                      <h4 className="text-lg font-medium mb-2">No AI Models Configured</h4>
+                      <p className="text-muted-foreground mb-4">Add your first AI model to get started</p>
+                      <Button onClick={() => navigate('/admin/add-model')}>
+                        <Plus className="mr-2 h-4 w-4" />
+                        Add New Model
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-border overflow-hidden">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Model Name</TableHead>
+                            <TableHead>Provider</TableHead>
+                            <TableHead>API Key</TableHead>
+                            <TableHead>Status</TableHead>
+                            <TableHead className="text-right">Actions</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {aiModels.map((model) => (
+                            <TableRow key={model.id} className={model.is_active ? 'bg-primary/5' : ''}>
+                              <TableCell className="font-medium">
+                                <div className="flex items-center gap-2">
+                                  {model.is_active && (
+                                    <Zap className="w-4 h-4 text-primary animate-pulse" />
+                                  )}
+                                  {model.model_name}
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <Badge variant="outline" className="capitalize">
+                                  {model.provider}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="font-mono text-sm text-muted-foreground">
+                                {maskApiKey(model.api_key_encrypted)}
+                              </TableCell>
+                              <TableCell>
+                                {model.is_active ? (
+                                  <Badge className="bg-green-500/20 text-green-400 border-green-500/30">
+                                    <CheckCircle2 className="w-3 h-3 mr-1" />
+                                    Active
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="secondary">Standby</Badge>
+                                )}
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <div className="flex items-center justify-end gap-2">
+                                  {!model.is_active && (
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => setModelActive(model.id)}
+                                    >
+                                      <Zap className="mr-1 h-3 w-3" />
+                                      Activate
+                                    </Button>
+                                  )}
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => navigate(`/admin/add-model?edit=${model.id}`)}
+                                  >
+                                    <Edit className="h-4 w-4" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="text-destructive hover:text-destructive"
+                                    onClick={() => setDeleteModelId(model.id)}
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
+                </Card>
+
+                {/* Legacy API Keys Section */}
+                <Card className="p-6 glass-panel">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Key className="w-5 h-5 text-primary" />
+                    <h3 className="font-semibold">Legacy API Keys (Fallback)</h3>
+                  </div>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    Environment-based API keys with automatic failover. Used when no database model is configured.
+                  </p>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <button
+                      onClick={() => {
+                        setActiveApiKey(1);
+                        toast({ title: "API Key Switched", description: "Now using Key 1 (Primary Gemini API Key)" });
+                      }}
+                      className={`relative p-4 rounded-lg border text-left transition-all ${
+                        activeApiKey === 1 
+                          ? 'border-primary/50 bg-primary/10 ring-2 ring-primary/30' 
+                          : 'border-border bg-secondary/30 hover:border-primary/30 hover:bg-secondary/50'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <div className={`p-2 rounded-full ${activeApiKey === 1 ? 'bg-primary/20' : 'bg-muted'}`}>
+                            <Zap className={`w-4 h-4 ${activeApiKey === 1 ? 'text-primary animate-pulse' : 'text-muted-foreground'}`} />
+                          </div>
+                          <span className="font-medium">Key 1</span>
+                        </div>
+                        <Badge className={activeApiKey === 1 ? 'bg-green-500/20 text-green-400 border-green-500/30' : 'bg-muted text-muted-foreground'}>
+                          {activeApiKey === 1 ? 'Active' : 'Standby'}
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground">Primary Gemini API Key</p>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setActiveApiKey(2);
+                        toast({ title: "API Key Switched", description: "Now using Key 2 (Secondary Gemini Key)" });
+                      }}
+                      className={`relative p-4 rounded-lg border text-left transition-all ${
+                        activeApiKey === 2 
+                          ? 'border-primary/50 bg-primary/10 ring-2 ring-primary/30' 
+                          : 'border-border bg-secondary/30 hover:border-primary/30 hover:bg-secondary/50'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <div className={`p-2 rounded-full ${activeApiKey === 2 ? 'bg-primary/20' : 'bg-muted'}`}>
+                            <Zap className={`w-4 h-4 ${activeApiKey === 2 ? 'text-primary animate-pulse' : 'text-muted-foreground'}`} />
+                          </div>
+                          <span className="font-medium">Key 2</span>
+                        </div>
+                        <Badge className={activeApiKey === 2 ? 'bg-green-500/20 text-green-400 border-green-500/30' : 'bg-muted text-muted-foreground'}>
+                          {activeApiKey === 2 ? 'Active' : 'Standby'}
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground">Secondary Gemini API Key</p>
+                    </button>
+                  </div>
+                </Card>
+
+                {/* Other Settings */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <Card className="p-4 glass-panel">
                     <h3 className="font-semibold mb-2">Bangladesh Laws Database</h3>
                     <p className="text-sm text-muted-foreground mb-4">
-                      Manage the Bangladesh laws source database and sync from official sources.
+                      Manage the Bangladesh laws source database.
                     </p>
                     <Button onClick={() => navigate('/admin/law-sources')}>
                       <Database className="mr-2 h-4 w-4" />
-                      Manage Laws Source
+                      Manage Laws
                     </Button>
-                  </div>
+                  </Card>
 
-                  {/* API Key Status Dashboard */}
-                  <div className="p-4 rounded-lg bg-secondary/50">
-                    <div className="flex items-center gap-2 mb-4">
-                      <Key className="w-5 h-5 text-primary" />
-                      <h3 className="font-semibold">API Key Status</h3>
-                    </div>
-                    <p className="text-sm text-muted-foreground mb-4">
-                      Tap on a key to manually switch. Gemini API keys with automatic failover.
-                    </p>
-                    
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {/* Key 1 - Primary */}
-                      <button
-                        onClick={() => {
-                          setActiveApiKey(1);
-                          toast({ title: "API Key Switched", description: "Now using Key 1 (Primary Gemini API Key)" });
-                        }}
-                        className={`relative p-4 rounded-lg border text-left transition-all ${
-                          activeApiKey === 1 
-                            ? 'border-primary/50 bg-primary/10 ring-2 ring-primary/30' 
-                            : 'border-border bg-secondary/30 hover:border-primary/30 hover:bg-secondary/50'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center gap-2">
-                            <div className={`p-2 rounded-full ${activeApiKey === 1 ? 'bg-primary/20' : 'bg-muted'}`}>
-                              <Zap className={`w-4 h-4 ${activeApiKey === 1 ? 'text-primary animate-pulse' : 'text-muted-foreground'}`} />
-                            </div>
-                            <span className="font-medium">Key 1</span>
-                          </div>
-                          <Badge className={activeApiKey === 1 ? 'bg-green-500/20 text-green-400 border-green-500/30' : 'bg-muted text-muted-foreground'}>
-                            {activeApiKey === 1 ? 'Active' : 'Standby'}
-                          </Badge>
-                        </div>
-                        <p className="text-xs text-muted-foreground">Primary Gemini API Key</p>
-                        <p className={`text-xs mt-1 ${activeApiKey === 1 ? 'text-primary' : 'text-muted-foreground'}`}>
-                          {activeApiKey === 1 ? 'Currently Running' : 'Tap to activate'}
-                        </p>
-                      </button>
-
-                      {/* Key 2 - Secondary */}
-                      <button
-                        onClick={() => {
-                          setActiveApiKey(2);
-                          toast({ title: "API Key Switched", description: "Now using Key 2 (Secondary Gemini 2.5 Flash Key)" });
-                        }}
-                        className={`relative p-4 rounded-lg border text-left transition-all ${
-                          activeApiKey === 2 
-                            ? 'border-primary/50 bg-primary/10 ring-2 ring-primary/30' 
-                            : 'border-border bg-secondary/30 hover:border-primary/30 hover:bg-secondary/50'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center gap-2">
-                            <div className={`p-2 rounded-full ${activeApiKey === 2 ? 'bg-primary/20' : 'bg-muted'}`}>
-                              <Zap className={`w-4 h-4 ${activeApiKey === 2 ? 'text-primary animate-pulse' : 'text-muted-foreground'}`} />
-                            </div>
-                            <span className="font-medium">Key 2</span>
-                          </div>
-                          <Badge className={activeApiKey === 2 ? 'bg-green-500/20 text-green-400 border-green-500/30' : 'bg-muted text-muted-foreground'}>
-                            {activeApiKey === 2 ? 'Active' : 'Standby'}
-                          </Badge>
-                        </div>
-                        <p className="text-xs text-muted-foreground">Secondary Gemini 2.5 Flash Key</p>
-                        <p className={`text-xs mt-1 ${activeApiKey === 2 ? 'text-primary' : 'text-muted-foreground'}`}>
-                          {activeApiKey === 2 ? 'Currently Running' : 'Tap to activate'}
-                        </p>
-                      </button>
-                    </div>
-
-                    <div className="mt-4 p-3 rounded-lg bg-primary/10 border border-primary/20">
-                      <p className="text-xs text-muted-foreground">
-                        <span className="text-primary font-medium">Auto-Switch:</span> System automatically switches keys on rate limits. Manual override available above.
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="p-4 rounded-lg bg-secondary/50">
-                    <h3 className="font-semibold mb-2">AI Configuration</h3>
-                    <p className="text-sm text-muted-foreground mb-4">
-                      JurisMind AI is powered by Google Gemini 2.5 Flash Lite model with dual-key failover.
-                    </p>
-                    <Badge>Active</Badge>
-                  </div>
-
-                  <div className="p-4 rounded-lg bg-secondary/50">
+                  <Card className="p-4 glass-panel">
                     <h3 className="font-semibold mb-2">Database Status</h3>
                     <p className="text-sm text-muted-foreground mb-4">
-                      Connected to Supabase backend via Lovable Cloud.
+                      Connected to Lovable Cloud backend.
                     </p>
                     <Badge variant="secondary">Connected</Badge>
-                  </div>
-
-                  <div className="p-4 rounded-lg bg-secondary/50">
-                    <h3 className="font-semibold mb-2">Storage</h3>
-                    <p className="text-sm text-muted-foreground mb-4">
-                      User documents stored securely in Supabase Storage.
-                    </p>
-                    <Badge variant="outline">Operational</Badge>
-                  </div>
+                  </Card>
                 </div>
-              </Card>
+              </div>
             </TabsContent>
           </Tabs>
         </div>
@@ -632,6 +818,30 @@ const Admin = () => {
               </TabsContent>
             </Tabs>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Model Confirmation Dialog */}
+      <Dialog open={!!deleteModelId} onOpenChange={() => setDeleteModelId(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete AI Model</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete this AI model? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteModelId(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => deleteModelId && deleteModel(deleteModelId)}
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              Delete Model
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

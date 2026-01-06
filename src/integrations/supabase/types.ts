@@ -50,6 +50,39 @@ export type Database = {
         }
         Relationships: []
       }
+      ai_models: {
+        Row: {
+          api_key_encrypted: string
+          created_at: string
+          created_by: string | null
+          id: string
+          is_active: boolean
+          model_name: string
+          provider: string
+          updated_at: string
+        }
+        Insert: {
+          api_key_encrypted: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_active?: boolean
+          model_name: string
+          provider?: string
+          updated_at?: string
+        }
+        Update: {
+          api_key_encrypted?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_active?: boolean
+          model_name?: string
+          provider?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       bangladesh_laws: {
         Row: {
           act_number: string | null
