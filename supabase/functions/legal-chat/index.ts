@@ -171,37 +171,38 @@ function isKeyAvailable(state: APIKeyState): boolean {
   return state.isActive && (!state.cooldownUntil || now >= state.cooldownUntil);
 }
 
-function getActiveKey(excludeKeys: Set<string> = new Set()): { keyId: string; state: APIKeyState } | null {
+function getActiveKey(excludeKeys: Set<string> = new Set(), preferredKey: 'primary' | 'secondary' = 'primary'): { keyId: string; state: APIKeyState } | null {
   initializeKeyStates();
   
-  // Try primary key first (if not excluded)
-  if (!excludeKeys.has('primary')) {
-    const primaryState = keyStates.get('primary');
-    if (primaryState && isKeyAvailable(primaryState)) {
-      console.log(`[API Key Manager] Using Primary key`);
-      return { keyId: 'primary', state: primaryState };
+  // Try the admin-preferred key first (if not excluded)
+  if (!excludeKeys.has(preferredKey)) {
+    const preferredState = keyStates.get(preferredKey);
+    if (preferredState && isKeyAvailable(preferredState)) {
+      console.log(`[API Key Manager] Using admin-selected ${preferredKey} key`);
+      return { keyId: preferredKey, state: preferredState };
     }
   }
   
-  // Fall back to secondary key (if not excluded)
-  if (!excludeKeys.has('secondary')) {
-    const secondaryState = keyStates.get('secondary');
-    if (secondaryState && isKeyAvailable(secondaryState)) {
-      console.log(`[API Key Manager] Primary unavailable or excluded, using Secondary key`);
-      return { keyId: 'secondary', state: secondaryState };
+  // Fall back to the other key
+  const fallbackKey = preferredKey === 'primary' ? 'secondary' : 'primary';
+  if (!excludeKeys.has(fallbackKey)) {
+    const fallbackState = keyStates.get(fallbackKey);
+    if (fallbackState && isKeyAvailable(fallbackState)) {
+      console.log(`[API Key Manager] Preferred key ${preferredKey} unavailable, falling back to ${fallbackKey}`);
+      return { keyId: fallbackKey, state: fallbackState };
     }
   }
   
-  // Check if primary can be recovered
-  const primaryState = keyStates.get('primary');
-  if (primaryState && primaryState.cooldownUntil && !excludeKeys.has('primary')) {
-    const remainingCooldown = primaryState.cooldownUntil - Date.now();
+  // Check if preferred key can be recovered from cooldown
+  const preferredState = keyStates.get(preferredKey);
+  if (preferredState && preferredState.cooldownUntil && !excludeKeys.has(preferredKey)) {
+    const remainingCooldown = preferredState.cooldownUntil - Date.now();
     if (remainingCooldown <= 0) {
-      primaryState.isActive = true;
-      primaryState.cooldownUntil = null;
-      primaryState.failureCount = 0;
-      console.log(`[API Key Manager] Primary key recovered from cooldown`);
-      return { keyId: 'primary', state: primaryState };
+      preferredState.isActive = true;
+      preferredState.cooldownUntil = null;
+      preferredState.failureCount = 0;
+      console.log(`[API Key Manager] ${preferredKey} key recovered from cooldown`);
+      return { keyId: preferredKey, state: preferredState };
     }
   }
   
@@ -337,6 +338,48 @@ async function getActiveModelFromDB(): Promise<{ model_name: string; provider: s
   } catch (e) {
     console.error('[DB Model] Error fetching active model:', e);
     return null;
+  }
+}
+
+// Fetch admin-selected active legacy key from database
+async function getActiveLegacyKeyFromDB(): Promise<'primary' | 'secondary'> {
+  const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
+  const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+    console.log('[Legacy Key] Supabase credentials not available, defaulting to primary');
+    return 'primary';
+  }
+
+  try {
+    const response = await fetch(
+      `${SUPABASE_URL}/rest/v1/system_settings?setting_key=eq.active_legacy_key&select=setting_value&limit=1`,
+      {
+        headers: {
+          'apikey': SUPABASE_SERVICE_ROLE_KEY,
+          'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+
+    if (!response.ok) {
+      console.log('[Legacy Key] Failed to fetch active legacy key:', response.status);
+      return 'primary';
+    }
+
+    const settings = await response.json();
+    if (settings && settings.length > 0) {
+      const key = settings[0].setting_value as 'primary' | 'secondary';
+      console.log(`[Legacy Key] Admin selected legacy key: ${key}`);
+      return key;
+    }
+    
+    console.log('[Legacy Key] No setting found, defaulting to primary');
+    return 'primary';
+  } catch (e) {
+    console.error('[Legacy Key] Error fetching active legacy key:', e);
+    return 'primary';
   }
 }
 
@@ -742,9 +785,13 @@ IMPORTANT: Prioritize information from uploaded documents and Bangladesh laws da
       console.log(`[Model Manager] Falling back to environment API keys`);
       usedModelName = 'Gemini 2.5 Flash Lite';
       
-      // Try each available key
+      // Fetch admin-selected preferred legacy key
+      const preferredLegacyKey = await getActiveLegacyKeyFromDB();
+      console.log(`[Model Manager] Admin-selected legacy key: ${preferredLegacyKey}`);
+      
+      // Try each available key, starting with admin-preferred
       while (triedKeys.size < keyStates.size) {
-        const activeKey = getActiveKey(triedKeys);
+        const activeKey = getActiveKey(triedKeys, preferredLegacyKey);
         
         if (!activeKey) {
           console.log(`[API Key Manager] No more keys available to try. Tried: ${Array.from(triedKeys).join(', ')}`);

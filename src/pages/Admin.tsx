@@ -78,7 +78,8 @@ const Admin = () => {
     totalMessages: 0,
   });
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeApiKey, setActiveApiKey] = useState<1 | 2>(1);
+  const [activeApiKey, setActiveApiKey] = useState<'primary' | 'secondary'>('primary');
+  const [loadingLegacyKey, setLoadingLegacyKey] = useState(false);
   
   // AI Models State
   const [aiModels, setAiModels] = useState<AIModel[]>([]);
@@ -138,7 +139,47 @@ const Admin = () => {
     setIsAdmin(true);
     await fetchAllData();
     await fetchAIModels();
+    await fetchActiveLegacyKey();
     setIsLoading(false);
+  };
+
+  const fetchActiveLegacyKey = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('system_settings')
+        .select('setting_value')
+        .eq('setting_key', 'active_legacy_key')
+        .single();
+
+      if (data && !error) {
+        setActiveApiKey(data.setting_value as 'primary' | 'secondary');
+      }
+    } catch (error) {
+      console.error('Error fetching active legacy key:', error);
+    }
+  };
+
+  const updateActiveLegacyKey = async (key: 'primary' | 'secondary') => {
+    setLoadingLegacyKey(true);
+    try {
+      const { error } = await supabase
+        .from('system_settings')
+        .update({ setting_value: key })
+        .eq('setting_key', 'active_legacy_key');
+
+      if (error) throw error;
+
+      setActiveApiKey(key);
+      toast({ 
+        title: "Legacy Key Activated", 
+        description: `${key === 'primary' ? 'Key 1 (Primary)' : 'Key 2 (Secondary)'} is now the active fallback key for all AI requests.` 
+      });
+    } catch (error: any) {
+      console.error('Error updating active legacy key:', error);
+      toast({ title: "Error", description: "Failed to update active legacy key.", variant: "destructive" });
+    } finally {
+      setLoadingLegacyKey(false);
+    }
   };
 
   const fetchAIModels = async () => {
@@ -616,64 +657,96 @@ const Admin = () => {
                 </Card>
 
                 {/* Legacy API Keys Section */}
-                <Card className="p-6 glass-panel">
-                  <div className="flex items-center gap-2 mb-4">
-                    <Key className="w-5 h-5 text-primary" />
-                    <h3 className="font-semibold">Legacy API Keys (Fallback)</h3>
+                <Card className="p-6 glass-panel border-amber-500/20">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-2">
+                      <Key className="w-5 h-5 text-amber-500" />
+                      <h3 className="font-semibold">Legacy API Keys (Fallback)</h3>
+                    </div>
+                    <Badge variant="outline" className="text-amber-500 border-amber-500/30">
+                      Fallback System
+                    </Badge>
                   </div>
+                  
+                  {/* Currently Active Legacy Key Display */}
+                  <div className="mb-4 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                    <div className="flex items-center gap-2">
+                      <Zap className="w-4 h-4 text-amber-500 animate-pulse" />
+                      <span className="text-sm font-medium">Currently Active Fallback:</span>
+                      <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/30">
+                        {activeApiKey === 'primary' ? 'Key 1 - Primary' : 'Key 2 - Secondary'}
+                      </Badge>
+                    </div>
+                  </div>
+                  
                   <p className="text-sm text-muted-foreground mb-4">
-                    Environment-based API keys with automatic failover. Used when no database model is configured.
+                    Select the active fallback key. This key will be used for all AI requests when no database model is active.
+                    Your selection persists globally across all sessions.
                   </p>
                   
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <button
-                      onClick={() => {
-                        setActiveApiKey(1);
-                        toast({ title: "API Key Switched", description: "Now using Key 1 (Primary Gemini API Key)" });
-                      }}
+                      onClick={() => updateActiveLegacyKey('primary')}
+                      disabled={loadingLegacyKey}
                       className={`relative p-4 rounded-lg border text-left transition-all ${
-                        activeApiKey === 1 
-                          ? 'border-primary/50 bg-primary/10 ring-2 ring-primary/30' 
-                          : 'border-border bg-secondary/30 hover:border-primary/30 hover:bg-secondary/50'
-                      }`}
+                        activeApiKey === 'primary' 
+                          ? 'border-amber-500/50 bg-amber-500/10 ring-2 ring-amber-500/30' 
+                          : 'border-border bg-secondary/30 hover:border-amber-500/30 hover:bg-secondary/50'
+                      } ${loadingLegacyKey ? 'opacity-50 cursor-not-allowed' : ''}`}
                     >
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-2">
-                          <div className={`p-2 rounded-full ${activeApiKey === 1 ? 'bg-primary/20' : 'bg-muted'}`}>
-                            <Zap className={`w-4 h-4 ${activeApiKey === 1 ? 'text-primary animate-pulse' : 'text-muted-foreground'}`} />
+                          <div className={`p-2 rounded-full ${activeApiKey === 'primary' ? 'bg-amber-500/20' : 'bg-muted'}`}>
+                            {loadingLegacyKey ? (
+                              <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                            ) : (
+                              <Zap className={`w-4 h-4 ${activeApiKey === 'primary' ? 'text-amber-500 animate-pulse' : 'text-muted-foreground'}`} />
+                            )}
                           </div>
                           <span className="font-medium">Key 1</span>
                         </div>
-                        <Badge className={activeApiKey === 1 ? 'bg-green-500/20 text-green-400 border-green-500/30' : 'bg-muted text-muted-foreground'}>
-                          {activeApiKey === 1 ? 'Active' : 'Standby'}
+                        <Badge className={activeApiKey === 'primary' ? 'bg-green-500/20 text-green-400 border-green-500/30' : 'bg-muted text-muted-foreground'}>
+                          {activeApiKey === 'primary' ? 'Active' : 'Standby'}
                         </Badge>
                       </div>
                       <p className="text-xs text-muted-foreground">Primary Gemini API Key</p>
+                      {activeApiKey === 'primary' && (
+                        <div className="absolute top-2 right-2">
+                          <CheckCircle2 className="w-4 h-4 text-green-500" />
+                        </div>
+                      )}
                     </button>
 
                     <button
-                      onClick={() => {
-                        setActiveApiKey(2);
-                        toast({ title: "API Key Switched", description: "Now using Key 2 (Secondary Gemini Key)" });
-                      }}
+                      onClick={() => updateActiveLegacyKey('secondary')}
+                      disabled={loadingLegacyKey}
                       className={`relative p-4 rounded-lg border text-left transition-all ${
-                        activeApiKey === 2 
-                          ? 'border-primary/50 bg-primary/10 ring-2 ring-primary/30' 
-                          : 'border-border bg-secondary/30 hover:border-primary/30 hover:bg-secondary/50'
-                      }`}
+                        activeApiKey === 'secondary' 
+                          ? 'border-amber-500/50 bg-amber-500/10 ring-2 ring-amber-500/30' 
+                          : 'border-border bg-secondary/30 hover:border-amber-500/30 hover:bg-secondary/50'
+                      } ${loadingLegacyKey ? 'opacity-50 cursor-not-allowed' : ''}`}
                     >
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-2">
-                          <div className={`p-2 rounded-full ${activeApiKey === 2 ? 'bg-primary/20' : 'bg-muted'}`}>
-                            <Zap className={`w-4 h-4 ${activeApiKey === 2 ? 'text-primary animate-pulse' : 'text-muted-foreground'}`} />
+                          <div className={`p-2 rounded-full ${activeApiKey === 'secondary' ? 'bg-amber-500/20' : 'bg-muted'}`}>
+                            {loadingLegacyKey ? (
+                              <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                            ) : (
+                              <Zap className={`w-4 h-4 ${activeApiKey === 'secondary' ? 'text-amber-500 animate-pulse' : 'text-muted-foreground'}`} />
+                            )}
                           </div>
                           <span className="font-medium">Key 2</span>
                         </div>
-                        <Badge className={activeApiKey === 2 ? 'bg-green-500/20 text-green-400 border-green-500/30' : 'bg-muted text-muted-foreground'}>
-                          {activeApiKey === 2 ? 'Active' : 'Standby'}
+                        <Badge className={activeApiKey === 'secondary' ? 'bg-green-500/20 text-green-400 border-green-500/30' : 'bg-muted text-muted-foreground'}>
+                          {activeApiKey === 'secondary' ? 'Active' : 'Standby'}
                         </Badge>
                       </div>
                       <p className="text-xs text-muted-foreground">Secondary Gemini API Key</p>
+                      {activeApiKey === 'secondary' && (
+                        <div className="absolute top-2 right-2">
+                          <CheckCircle2 className="w-4 h-4 text-green-500" />
+                        </div>
+                      )}
                     </button>
                   </div>
                 </Card>
