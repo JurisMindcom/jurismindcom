@@ -12,7 +12,8 @@ import { useToast } from '@/hooks/use-toast';
 
 const IMAGE_PROVIDERS = [
   { value: 'google', label: 'Google (Gemini Vision)', models: ['gemini-2.5-flash-image-preview', 'gemini-2.0-flash-exp'] },
-  { value: 'openai', label: 'OpenAI (DALL-E)', models: ['dall-e-3', 'dall-e-2', 'gpt-4o-vision'] },
+  { value: 'openai', label: 'OpenAI (DALL-E)', models: ['dall-e-3', 'dall-e-2', 'gpt-image-1'] },
+  { value: 'openrouter', label: 'OpenRouter', models: ['Seedream-4.5', 'FLUX.1-schnell', 'FLUX.1-dev', 'Stable Diffusion XL', 'Any OpenRouter Model'] },
   { value: 'stability', label: 'Stability AI', models: ['stable-diffusion-xl', 'stable-diffusion-3'] },
   { value: 'huggingface', label: 'Hugging Face', models: ['FLUX.1-schnell', 'FLUX.1-dev'] },
   { value: 'custom', label: 'Custom Provider', models: ['custom'] },
@@ -58,6 +59,11 @@ const AddImageModel = () => {
         isValid = response.ok;
       } else if (provider === 'openai') {
         const response = await fetch('https://api.openai.com/v1/models', {
+          headers: { 'Authorization': `Bearer ${apiKey}` },
+        });
+        isValid = response.ok;
+      } else if (provider === 'openrouter') {
+        const response = await fetch('https://openrouter.ai/api/v1/models', {
           headers: { 'Authorization': `Bearer ${apiKey}` },
         });
         isValid = response.ok;
