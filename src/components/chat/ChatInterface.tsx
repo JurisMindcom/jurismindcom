@@ -40,7 +40,9 @@ interface Message {
   content: string;
   created_at: string;
   imageUrl?: string;
+  pending?: boolean;
 }
+
 
 interface ChatInterfaceProps {
   userId: string;
@@ -67,7 +69,9 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
   const [scrapedContent, setScrapedContent] = useState<any>(null);
   const [isScrapingUrl, setIsScrapingUrl] = useState(false);
   const [imageMode, setImageMode] = useState<'off' | 'generate' | 'analyze' | 'edit'>('off');
+  const [imageAspectRatio, setImageAspectRatio] = useState<'1:1' | '16:9' | '9:16' | '3:2' | '2:3' | '4:3' | '3:4'>('1:1');
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -386,69 +390,110 @@ ${ocrResult.summary}
   // Handle Image AI actions
   const handleImageAction = async () => {
     if (!input.trim() && imageMode !== 'analyze') return;
-    
+
+    const tempId = `img-${Date.now()}`;
+    const nowIso = new Date().toISOString();
+
+    const config = {
+      aspectRatio: imageAspectRatio,
+      imageSize: '2K' as const,
+    };
+
+    // Always show the user prompt + an in-chat processing message
+    setMessages(prev => [
+      ...prev,
+      {
+        id: `user-${tempId}`,
+        role: 'user',
+        content:
+          imageMode === 'generate'
+            ? `🎨 Generate image (${imageAspectRatio}): ${input}`
+            : imageMode === 'edit'
+              ? `✏️ Edit image (${imageAspectRatio}): ${input}`
+              : `🔍 Analyze image${input ? `: ${input}` : ''}`,
+        created_at: nowIso,
+      },
+      {
+        id: tempId,
+        role: 'assistant',
+        content:
+          imageMode === 'generate'
+            ? 'Generating image...'
+            : imageMode === 'edit'
+              ? 'Editing image...'
+              : 'Analyzing image...'
+        ,
+        created_at: nowIso,
+        pending: true,
+      },
+    ]);
+
+    setInput('');
     setIsLoading(true);
-    
+
     try {
       let result;
-      
+
       if (imageMode === 'generate') {
-        result = await generateImage(input);
+        result = await generateImage(input, config);
         if (result?.imageUrl) {
-          // Add to messages
-          const tempId = `img-${Date.now()}`;
-          setMessages(prev => [...prev, {
-            id: `user-${tempId}`,
-            role: 'user',
-            content: `🎨 Generate image: ${input}`,
-            created_at: new Date().toISOString(),
-          }, {
-            id: tempId,
-            role: 'assistant',
-            content: `![Generated Image](${result.imageUrl})\n\n${result.description || 'Image generated successfully'}`,
-            created_at: new Date().toISOString(),
-            imageUrl: result.imageUrl,
-          }]);
+          setMessages(prev => prev.map(m => (
+            m.id === tempId
+              ? {
+                  ...m,
+                  pending: false,
+                  imageUrl: result.imageUrl,
+                  content: `${result.description || 'Image generated successfully'}`,
+                }
+              : m
+          )));
         }
       } else if (imageMode === 'analyze' && uploadedImage) {
         result = await analyzeImage(uploadedImage, input || undefined);
         if (result?.analysis) {
-          const tempId = `img-${Date.now()}`;
-          setMessages(prev => [...prev, {
-            id: `user-${tempId}`,
-            role: 'user',
-            content: `🔍 Analyze image${input ? `: ${input}` : ''}`,
-            created_at: new Date().toISOString(),
-          }, {
-            id: tempId,
-            role: 'assistant',
-            content: result.analysis,
-            created_at: new Date().toISOString(),
-          }]);
+          setMessages(prev => prev.map(m => (
+            m.id === tempId
+              ? {
+                  ...m,
+                  pending: false,
+                  content: result.analysis,
+                }
+              : m
+          )));
         }
       } else if (imageMode === 'edit' && uploadedImage) {
-        result = await editImage(uploadedImage, input);
+        result = await editImage(uploadedImage, input, config);
         if (result?.imageUrl) {
-          const tempId = `img-${Date.now()}`;
-          setMessages(prev => [...prev, {
-            id: `user-${tempId}`,
-            role: 'user',
-            content: `✏️ Edit image: ${input}`,
-            created_at: new Date().toISOString(),
-          }, {
-            id: tempId,
-            role: 'assistant',
-            content: `![Edited Image](${result.imageUrl})\n\n${result.description || 'Image edited successfully'}`,
-            created_at: new Date().toISOString(),
-            imageUrl: result.imageUrl,
-          }]);
+          setMessages(prev => prev.map(m => (
+            m.id === tempId
+              ? {
+                  ...m,
+                  pending: false,
+                  imageUrl: result.imageUrl,
+                  content: `${result.description || 'Image edited successfully'}`,
+                }
+              : m
+          )));
         }
       }
-      
-      setInput('');
+
+      // If we didn't get a result, turn the pending bubble into an error message
+      if (!result) {
+        setMessages(prev => prev.map(m => (
+          m.id === tempId
+            ? { ...m, pending: false, content: 'Image processing failed. Please try again.' }
+            : m
+        )));
+      }
+
       setUploadedImage(null);
       setImageMode('off');
     } catch (error: any) {
+      setMessages(prev => prev.map(m => (
+        m.id === tempId
+          ? { ...m, pending: false, content: `Image processing error: ${error.message || 'Unknown error'}` }
+          : m
+      )));
       toast({ title: "Error", description: error.message, variant: "destructive" });
     } finally {
       setIsLoading(false);
@@ -671,6 +716,8 @@ ${scrapedContent.content?.substring(0, 15000) || 'No content extracted'}
                   index={index}
                   copiedId={copiedId}
                   onCopy={handleCopy}
+                  imageUrl={message.imageUrl}
+                  pending={message.pending}
                 />
               ))}
 
@@ -725,28 +772,49 @@ ${scrapedContent.content?.substring(0, 15000) || 'No content extracted'}
         {/* Image Mode Bar - shows when image mode is active */}
         {imageMode !== 'off' && (
           <div className="mb-3 p-3 bg-gradient-to-r from-pink-500/10 to-purple-500/10 border border-pink-500/30 rounded-lg">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-3 min-w-0">
                 <div className="w-10 h-10 bg-gradient-to-br from-pink-500/20 to-purple-500/20 rounded-lg flex items-center justify-center">
                   {imageMode === 'generate' && <Sparkles className="h-5 w-5 text-pink-500" />}
                   {imageMode === 'analyze' && <Scan className="h-5 w-5 text-blue-500" />}
                   {imageMode === 'edit' && <ImageIcon className="h-5 w-5 text-purple-500" />}
                 </div>
-                <div>
-                  <p className="text-sm font-medium">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium truncate">
                     {imageMode === 'generate' && '🎨 Image Generation Mode'}
                     {imageMode === 'analyze' && '🔍 Image Analysis Mode'}
                     {imageMode === 'edit' && '✏️ Image Editing Mode'}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    {imageMode === 'generate' && 'Describe the image you want to create'}
-                    {imageMode === 'analyze' && (uploadedImage ? 'Image ready for analysis' : 'Upload an image to analyze')}
-                    {imageMode === 'edit' && (uploadedImage ? 'Image ready for editing' : 'Upload an image to edit')}
+                    {(imageMode === 'generate' || imageMode === 'edit')
+                      ? `Aspect ratio: ${imageAspectRatio}`
+                      : (uploadedImage ? 'Image ready' : 'Upload an image')}
                   </p>
                 </div>
               </div>
+
+              {(imageMode === 'generate' || imageMode === 'edit') && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">Ratio</span>
+                  <Select value={imageAspectRatio} onValueChange={(v) => setImageAspectRatio(v as any)}>
+                    <SelectTrigger className="h-8 w-[140px]">
+                      <SelectValue placeholder="1:1" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="1:1">1:1 (Square)</SelectItem>
+                      <SelectItem value="16:9">16:9 (Wide)</SelectItem>
+                      <SelectItem value="9:16">9:16 (Tall)</SelectItem>
+                      <SelectItem value="3:2">3:2</SelectItem>
+                      <SelectItem value="2:3">2:3</SelectItem>
+                      <SelectItem value="4:3">4:3</SelectItem>
+                      <SelectItem value="3:4">3:4</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
               <div className="flex items-center gap-2">
-                {(imageMode === 'analyze' || imageMode === 'edit') && !uploadedImage && (
+                {(imageMode === 'analyze' || imageMode === 'edit') && (
                   <Button
                     variant="outline"
                     size="sm"
@@ -754,17 +822,16 @@ ${scrapedContent.content?.substring(0, 15000) || 'No content extracted'}
                     className="text-xs"
                   >
                     <Upload className="h-3 w-3 mr-1" />
-                    Upload Image
+                    {uploadedImage ? 'Replace Image' : 'Upload Image'}
                   </Button>
                 )}
-                {uploadedImage && (
-                  <div className="flex items-center gap-2">
-                    <img src={uploadedImage} alt="Uploaded" className="w-10 h-10 rounded object-cover" />
-                    <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setUploadedImage(null)}>
-                      <X className="h-3 w-3" />
-                    </Button>
-                  </div>
+
+                {uploadedImage && (imageMode === 'analyze' || imageMode === 'edit') && (
+                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setUploadedImage(null)}>
+                    <X className="h-4 w-4" />
+                  </Button>
                 )}
+
                 <Button variant="ghost" size="sm" onClick={() => { setImageMode('off'); setUploadedImage(null); }}>
                   <X className="h-4 w-4" />
                 </Button>

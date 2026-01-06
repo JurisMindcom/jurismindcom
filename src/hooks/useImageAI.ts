@@ -12,6 +12,11 @@ interface ImageResult {
   error?: string;
 }
 
+type ImageConfig = {
+  aspectRatio?: string; // e.g. 1:1, 16:9
+  imageSize?: '1K' | '2K' | '4K';
+};
+
 export const useImageAI = () => {
   const { toast } = useToast();
   const [isProcessing, setIsProcessing] = useState(false);
@@ -21,7 +26,8 @@ export const useImageAI = () => {
     action: 'generate' | 'analyze' | 'edit',
     prompt: string,
     imageBase64?: string,
-    editInstructions?: string
+    editInstructions?: string,
+    config?: ImageConfig
   ): Promise<ImageResult | null> => {
     setIsProcessing(true);
     setCurrentAction(action);
@@ -33,6 +39,7 @@ export const useImageAI = () => {
           prompt,
           imageBase64,
           editInstructions,
+          imageConfig: config,
         },
       });
 
@@ -70,13 +77,13 @@ export const useImageAI = () => {
     }
   };
 
-  const generateImage = async (prompt: string) => processImage('generate', prompt);
+  const generateImage = async (prompt: string, config?: ImageConfig) => processImage('generate', prompt, undefined, undefined, config);
 
   const analyzeImage = async (imageBase64: string, prompt?: string) =>
     processImage('analyze', prompt || 'Analyze this image in detail', imageBase64);
 
-  const editImage = async (imageBase64: string, editInstructions: string) =>
-    processImage('edit', '', imageBase64, editInstructions);
+  const editImage = async (imageBase64: string, editInstructions: string, config?: ImageConfig) =>
+    processImage('edit', '', imageBase64, editInstructions, config);
 
   const fileToBase64 = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
