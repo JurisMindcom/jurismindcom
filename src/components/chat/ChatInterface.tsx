@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Send, Mic, MicOff, Languages, Bot, Loader2, UserCircle,
-  Zap, BookOpen, Upload, X, FileText, AlertCircle, Globe, Scan, Flame, ChevronDown
+  Zap, BookOpen, Upload, X, FileText, AlertCircle, Globe, Scan, Flame, ChevronDown, ImageIcon
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -27,6 +27,7 @@ import {
 import { analyzeFileContent, formatAnalysisForChat, type FileAnalysis } from '@/lib/fileAnalysis';
 import MessageItem from './MessageItem';
 import StreamingMessage from './StreamingMessage';
+import ImageAIPanel from './ImageAIPanel';
 import useIncrementalStream from '@/hooks/useIncrementalStream';
 
 // Memory cap: keep only last N messages in state
@@ -63,6 +64,7 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
   const [ocrResult, setOcrResult] = useState<any>(null);
   const [scrapedContent, setScrapedContent] = useState<any>(null);
   const [isScrapingUrl, setIsScrapingUrl] = useState(false);
+  const [showImageAI, setShowImageAI] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
@@ -752,6 +754,22 @@ ${scrapedContent.content?.substring(0, 15000) || 'No content extracted'}
               </Tooltip>
             </TooltipProvider>
             
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button 
+                    variant="outline" 
+                    size="icon" 
+                    onClick={() => setShowImageAI(!showImageAI)}
+                    className={showImageAI ? 'bg-pink-500/20 border-pink-500/50' : ''}
+                  >
+                    <ImageIcon className={`h-4 w-4 ${showImageAI ? 'text-pink-500' : ''}`} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Image AI (Generate, Analyze, Edit)</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            
             <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileUpload} accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png,.xlsx,.xls,.zip,.webp,.bmp,.tiff,.gif" />
 
             <DropdownMenu>
@@ -827,6 +845,20 @@ ${scrapedContent.content?.substring(0, 15000) || 'No content extracted'}
           </div>
         </div>
       </div>
+
+      {/* Image AI Panel */}
+      <ImageAIPanel
+        isOpen={showImageAI}
+        onClose={() => setShowImageAI(false)}
+        onImageGenerated={(imageUrl, description) => {
+          // Could add image to conversation context
+          toast({ title: 'Image Generated', description: description.slice(0, 100) });
+        }}
+        onImageAnalyzed={(analysis) => {
+          // Could add analysis to conversation context
+          setInput(prev => prev ? `${prev}\n\n[Image Analysis]\n${analysis}` : `[Image Analysis]\n${analysis}`);
+        }}
+      />
     </div>
   );
 };

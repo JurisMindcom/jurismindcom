@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import { 
   Scale, ArrowLeft, Users, MessageSquare, FileText, Settings,
   Shield, Activity, Search, Download, Eye, Calendar, TrendingUp,
-  Loader2, Brain, ChevronLeft, Database, Zap, Key, Bot, Plus, Trash2, Edit, CheckCircle2
+  Loader2, Brain, ChevronLeft, Database, Zap, Key, Bot, Plus, Trash2, Edit, CheckCircle2, ImageIcon
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -64,6 +64,16 @@ interface AIModel {
   updated_at: string;
 }
 
+interface ImageAIModel {
+  id: string;
+  model_name: string;
+  provider: string;
+  api_key_encrypted: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 const Admin = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -86,6 +96,12 @@ const Admin = () => {
   const [activeModel, setActiveModel] = useState<AIModel | null>(null);
   const [loadingModels, setLoadingModels] = useState(false);
   const [deleteModelId, setDeleteModelId] = useState<string | null>(null);
+  
+  // Image AI Models State
+  const [imageModels, setImageModels] = useState<ImageAIModel[]>([]);
+  const [activeImageModel, setActiveImageModel] = useState<ImageAIModel | null>(null);
+  const [loadingImageModels, setLoadingImageModels] = useState(false);
+  const [deleteImageModelId, setDeleteImageModelId] = useState<string | null>(null);
   
   // User Profile Modal State
   const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null);
@@ -139,8 +155,72 @@ const Admin = () => {
     setIsAdmin(true);
     await fetchAllData();
     await fetchAIModels();
+    await fetchImageModels();
     await fetchActiveLegacyKey();
     setIsLoading(false);
+  };
+
+  const fetchImageModels = async () => {
+    setLoadingImageModels(true);
+    try {
+      const { data, error } = await supabase
+        .from('image_ai_models')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      if (data) {
+        setImageModels(data as ImageAIModel[]);
+        const active = data.find((m: ImageAIModel) => m.is_active);
+        if (active) setActiveImageModel(active as ImageAIModel);
+      }
+    } catch (error) {
+      console.error('Error fetching image AI models:', error);
+    } finally {
+      setLoadingImageModels(false);
+    }
+  };
+
+  const setImageModelActive = async (modelId: string) => {
+    try {
+      // Deactivate all image models first
+      await supabase
+        .from('image_ai_models')
+        .update({ is_active: false })
+        .neq('id', '00000000-0000-0000-0000-000000000000');
+
+      const { error } = await supabase
+        .from('image_ai_models')
+        .update({ is_active: true })
+        .eq('id', modelId);
+
+      if (error) throw error;
+
+      await fetchImageModels();
+      toast({ title: "Image Model Activated", description: "The selected image model is now active for all image requests." });
+    } catch (error: any) {
+      console.error('Error setting active image model:', error);
+      toast({ title: "Error", description: "Failed to activate image model.", variant: "destructive" });
+    }
+  };
+
+  const deleteImageModel = async (modelId: string) => {
+    try {
+      const { error } = await supabase
+        .from('image_ai_models')
+        .delete()
+        .eq('id', modelId);
+
+      if (error) throw error;
+
+      await fetchImageModels();
+      setDeleteImageModelId(null);
+      toast({ title: "Image Model Deleted", description: "The image model has been removed successfully." });
+    } catch (error: any) {
+      console.error('Error deleting image model:', error);
+      toast({ title: "Error", description: "Failed to delete image model.", variant: "destructive" });
+    }
   };
 
   const fetchActiveLegacyKey = async () => {
@@ -751,6 +831,153 @@ const Admin = () => {
                   </div>
                 </Card>
 
+                {/* Image AI Models Section */}
+                <Card className="p-6 glass-panel border-pink-500/20 bg-gradient-to-br from-pink-500/5 to-purple-600/5">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-4">
+                      <div className="p-3 rounded-xl bg-gradient-to-br from-pink-500/20 to-purple-600/20 animate-pulse">
+                        <ImageIcon className="w-8 h-8 text-pink-500" />
+                      </div>
+                      <div>
+                        <p className="text-sm text-muted-foreground">Currently Active Image Model</p>
+                        <h2 className="text-xl font-bold flex items-center gap-2">
+                          {activeImageModel ? (
+                            <>
+                              <span className="text-pink-500">{activeImageModel.model_name}</span>
+                              <Badge className="bg-green-500/20 text-green-400 border-green-500/30">
+                                <Zap className="w-3 h-3 mr-1" />
+                                Running
+                              </Badge>
+                            </>
+                          ) : (
+                            <span className="text-muted-foreground">No image model active</span>
+                          )}
+                        </h2>
+                        {activeImageModel && (
+                          <p className="text-sm text-muted-foreground mt-1">
+                            Provider: {activeImageModel.provider} • API Key: {maskApiKey(activeImageModel.api_key_encrypted)}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <Button 
+                      onClick={() => navigate('/admin/add-image-model')} 
+                      className="bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700"
+                    >
+                      <Plus className="mr-2 h-5 w-5" />
+                      Add Image Model
+                    </Button>
+                  </div>
+
+                  <div className="mb-4 p-3 rounded-lg bg-pink-500/10 border border-pink-500/20">
+                    <h4 className="font-medium text-sm mb-2 flex items-center gap-2">
+                      <ImageIcon className="h-4 w-4 text-pink-500" />
+                      Image AI Capabilities
+                    </h4>
+                    <div className="flex flex-wrap gap-2">
+                      <Badge variant="outline" className="text-pink-400 border-pink-500/30">Generate Images</Badge>
+                      <Badge variant="outline" className="text-pink-400 border-pink-500/30">Analyze Images</Badge>
+                      <Badge variant="outline" className="text-pink-400 border-pink-500/30">Edit Images</Badge>
+                    </div>
+                  </div>
+
+                  {loadingImageModels ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="h-6 w-6 animate-spin text-pink-500" />
+                    </div>
+                  ) : imageModels.length === 0 ? (
+                    <div className="text-center py-8">
+                      <ImageIcon className="w-12 h-12 text-muted-foreground mx-auto mb-3 opacity-50" />
+                      <h4 className="text-md font-medium mb-2">No Image Models Configured</h4>
+                      <p className="text-sm text-muted-foreground mb-4">Add your first image AI model to enable image features</p>
+                      <Button 
+                        onClick={() => navigate('/admin/add-image-model')}
+                        variant="outline"
+                        className="border-pink-500/30 hover:bg-pink-500/10"
+                      >
+                        <Plus className="mr-2 h-4 w-4" />
+                        Add Image Model
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-pink-500/20 overflow-hidden">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Model Name</TableHead>
+                            <TableHead>Provider</TableHead>
+                            <TableHead>API Key</TableHead>
+                            <TableHead>Status</TableHead>
+                            <TableHead className="text-right">Actions</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {imageModels.map((model) => (
+                            <TableRow key={model.id} className={model.is_active ? 'bg-pink-500/5' : ''}>
+                              <TableCell className="font-medium">
+                                <div className="flex items-center gap-2">
+                                  {model.is_active && (
+                                    <Zap className="w-4 h-4 text-pink-500 animate-pulse" />
+                                  )}
+                                  {model.model_name}
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <Badge variant="outline" className="capitalize border-pink-500/30">
+                                  {model.provider}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="font-mono text-sm text-muted-foreground">
+                                {maskApiKey(model.api_key_encrypted)}
+                              </TableCell>
+                              <TableCell>
+                                {model.is_active ? (
+                                  <Badge className="bg-green-500/20 text-green-400 border-green-500/30">
+                                    <CheckCircle2 className="w-3 h-3 mr-1" />
+                                    Active
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="secondary">Standby</Badge>
+                                )}
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <div className="flex items-center justify-end gap-2">
+                                  {!model.is_active && (
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="border-pink-500/30 hover:bg-pink-500/10"
+                                      onClick={() => setImageModelActive(model.id)}
+                                    >
+                                      <Zap className="mr-1 h-3 w-3" />
+                                      Activate
+                                    </Button>
+                                  )}
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => navigate(`/admin/add-image-model?edit=${model.id}`)}
+                                  >
+                                    <Edit className="h-4 w-4" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="text-destructive hover:text-destructive"
+                                    onClick={() => setDeleteImageModelId(model.id)}
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
+                </Card>
+
                 {/* Other Settings */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <Card className="p-4 glass-panel">
@@ -913,6 +1140,30 @@ const Admin = () => {
             >
               <Trash2 className="mr-2 h-4 w-4" />
               Delete Model
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Image Model Confirmation Dialog */}
+      <Dialog open={!!deleteImageModelId} onOpenChange={() => setDeleteImageModelId(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Image AI Model</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete this image AI model? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteImageModelId(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => deleteImageModelId && deleteImageModel(deleteImageModelId)}
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              Delete Image Model
             </Button>
           </DialogFooter>
         </DialogContent>
