@@ -275,6 +275,130 @@ async function makeGeminiRequest(
   );
 }
 
+// Decrypt API key (simple XOR decryption matching the frontend encryption)
+function decryptApiKey(encrypted: string): string {
+  try {
+    const decoded = atob(encrypted);
+    const salt = 'jurismind_key_salt_2024';
+    let decrypted = '';
+    for (let i = 0; i < decoded.length; i++) {
+      decrypted += String.fromCharCode(decoded.charCodeAt(i) ^ salt.charCodeAt(i % salt.length));
+    }
+    return decrypted;
+  } catch (e) {
+    console.error('[Decrypt] Failed to decrypt API key:', e);
+    return '';
+  }
+}
+
+// Fetch active model from database
+async function getActiveModelFromDB(): Promise<{ model_name: string; provider: string; api_key: string } | null> {
+  const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
+  const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+    console.log('[DB Model] Supabase credentials not available');
+    return null;
+  }
+
+  try {
+    const response = await fetch(
+      `${SUPABASE_URL}/rest/v1/ai_models?is_active=eq.true&select=model_name,provider,api_key_encrypted&limit=1`,
+      {
+        headers: {
+          'apikey': SUPABASE_SERVICE_ROLE_KEY,
+          'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+
+    if (!response.ok) {
+      console.log('[DB Model] Failed to fetch active model:', response.status);
+      return null;
+    }
+
+    const models = await response.json();
+    if (models && models.length > 0) {
+      const model = models[0];
+      const decryptedKey = decryptApiKey(model.api_key_encrypted);
+      if (decryptedKey) {
+        console.log(`[DB Model] Using active model from database: ${model.model_name} (${model.provider})`);
+        return {
+          model_name: model.model_name,
+          provider: model.provider,
+          api_key: decryptedKey,
+        };
+      }
+    }
+    
+    console.log('[DB Model] No active model found in database, falling back to environment keys');
+    return null;
+  } catch (e) {
+    console.error('[DB Model] Error fetching active model:', e);
+    return null;
+  }
+}
+
+// Make API request based on provider
+async function makeProviderRequest(
+  provider: string,
+  apiKey: string,
+  geminiContents: Array<{ role: string; parts: Array<{ text: string }> }>,
+  systemPrompt: string,
+  maxTokens: number
+): Promise<Response> {
+  if (provider === 'openai') {
+    // Convert Gemini format to OpenAI format
+    const openaiMessages = [
+      { role: 'system', content: systemPrompt },
+      ...geminiContents.map(m => ({
+        role: m.role === 'model' ? 'assistant' : 'user',
+        content: m.parts[0].text,
+      })),
+    ];
+
+    return await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: openaiMessages,
+        max_tokens: maxTokens,
+        stream: true,
+      }),
+    });
+  } else if (provider === 'anthropic') {
+    // Convert to Anthropic format
+    const anthropicMessages = geminiContents.map(m => ({
+      role: m.role === 'model' ? 'assistant' : 'user',
+      content: m.parts[0].text,
+    }));
+
+    return await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': apiKey,
+        'Content-Type': 'application/json',
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-3-haiku-20240307',
+        max_tokens: maxTokens,
+        system: systemPrompt,
+        messages: anthropicMessages,
+        stream: true,
+      }),
+    });
+  } else {
+    // Default to Google Gemini
+    return await makeGeminiRequest(apiKey, geminiContents, systemPrompt, maxTokens);
+  }
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -283,7 +407,10 @@ serve(async (req) => {
   try {
     const { messages, personality, language, responseMode, userId } = await req.json();
 
-    // Initialize API keys
+    // Check for active model from database first
+    const dbModel = await getActiveModelFromDB();
+    
+    // Initialize fallback API keys
     initializeKeyStates();
 
     const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
@@ -573,79 +700,113 @@ IMPORTANT: Prioritize information from uploaded documents and Bangladesh laws da
     }));
 
     // ============================
-    // INTELLIGENT API KEY SWITCHING
+    // DATABASE MODEL OR FALLBACK KEYS
     // ============================
     let response: Response | null = null;
     let lastError: string = '';
     let usedKeyId: string | null = null;
+    let usedModelName: string = 'Gemini 2.5 Flash Lite';
     const triedKeys: Set<string> = new Set();
     
-    // Try each available key
-    while (triedKeys.size < keyStates.size) {
-      const activeKey = getActiveKey(triedKeys);
-      
-      if (!activeKey) {
-        // No more keys available
-        console.log(`[API Key Manager] No more keys available to try. Tried: ${Array.from(triedKeys).join(', ')}`);
-        break;
-      }
-      
-      triedKeys.add(activeKey.keyId);
-      usedKeyId = activeKey.keyId;
-      
-      console.log(`[API Key Manager] Attempting request with ${activeKey.state.name} (attempt ${triedKeys.size})`);
+    // If we have a database model, try it first
+    if (dbModel) {
+      console.log(`[Model Manager] Using database model: ${dbModel.model_name} (${dbModel.provider})`);
+      usedModelName = dbModel.model_name;
       
       try {
-        response = await makeGeminiRequest(
-          activeKey.state.key,
+        response = await makeProviderRequest(
+          dbModel.provider,
+          dbModel.api_key,
           geminiContents,
           systemPrompt,
           maxTokens
         );
         
         if (response.ok) {
-          // Success! Reset the key's failure state
-          resetKeyState(activeKey.keyId);
-          console.log(`[API Key Manager] Request successful with ${activeKey.state.name}`);
-          break;
+          console.log(`[Model Manager] Database model ${dbModel.model_name} request successful`);
         } else {
           const errorText = await response.text();
-          console.error(`[API Key Manager] ${activeKey.state.name} error:`, response.status, errorText);
+          console.error(`[Model Manager] Database model ${dbModel.model_name} error:`, response.status, errorText);
           lastError = errorText;
-          
-          if (isRetryableError(response.status, errorText)) {
-            // Mark this key as failed and try the next one
-            markKeyFailed(activeKey.keyId, `HTTP ${response.status}`);
-            console.log(`[API Key Manager] ${activeKey.state.name} failed with retryable error, trying next key...`);
-            response = null; // Reset to try next key
-            continue;
-          } else {
-            // Non-retryable error, return immediately
-            let friendly = 'AI request failed.';
-            try {
-              const parsed = JSON.parse(errorText);
-              const msg = parsed?.error?.message || parsed?.error;
-              if (typeof msg === 'string' && msg.trim()) friendly = msg;
-            } catch {
-              // keep default
-            }
-            
-            return new Response(JSON.stringify({ error: friendly }), {
-              status: response.status,
-              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            });
-          }
+          response = null; // Will fall through to environment keys
         }
-      } catch (fetchError) {
-        console.error(`[API Key Manager] Fetch error with ${activeKey.state.name}:`, fetchError);
-        markKeyFailed(activeKey.keyId, 'Network error');
-        lastError = fetchError instanceof Error ? fetchError.message : 'Network error';
-        console.log(`[API Key Manager] ${activeKey.state.name} network error, trying next key...`);
+      } catch (e) {
+        console.error(`[Model Manager] Database model ${dbModel.model_name} fetch error:`, e);
+        lastError = e instanceof Error ? e.message : 'Network error';
         response = null;
-        continue;
       }
     }
     
+    // If database model failed or not available, try environment keys
+    if (!response) {
+      console.log(`[Model Manager] Falling back to environment API keys`);
+      usedModelName = 'Gemini 2.5 Flash Lite';
+      
+      // Try each available key
+      while (triedKeys.size < keyStates.size) {
+        const activeKey = getActiveKey(triedKeys);
+        
+        if (!activeKey) {
+          console.log(`[API Key Manager] No more keys available to try. Tried: ${Array.from(triedKeys).join(', ')}`);
+          break;
+        }
+        
+        triedKeys.add(activeKey.keyId);
+        usedKeyId = activeKey.keyId;
+        
+        console.log(`[API Key Manager] Attempting request with ${activeKey.state.name} (attempt ${triedKeys.size})`);
+        
+        try {
+          response = await makeGeminiRequest(
+            activeKey.state.key,
+            geminiContents,
+            systemPrompt,
+            maxTokens
+          );
+        
+          if (response.ok) {
+            // Success! Reset the key's failure state
+            resetKeyState(activeKey.keyId);
+            console.log(`[API Key Manager] Request successful with ${activeKey.state.name}`);
+            break;
+          } else {
+            const errorText = await response.text();
+            console.error(`[API Key Manager] ${activeKey.state.name} error:`, response.status, errorText);
+            lastError = errorText;
+            
+            if (isRetryableError(response.status, errorText)) {
+              // Mark this key as failed and try the next one
+              markKeyFailed(activeKey.keyId, `HTTP ${response.status}`);
+              console.log(`[API Key Manager] ${activeKey.state.name} failed with retryable error, trying next key...`);
+              response = null; // Reset to try next key
+              continue;
+            } else {
+              // Non-retryable error, return immediately
+              let friendly = 'AI request failed.';
+              try {
+                const parsed = JSON.parse(errorText);
+                const msg = parsed?.error?.message || parsed?.error;
+                if (typeof msg === 'string' && msg.trim()) friendly = msg;
+              } catch {
+                // keep default
+              }
+              
+              return new Response(JSON.stringify({ error: friendly }), {
+                status: response.status,
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+              });
+            }
+          }
+        } catch (fetchError) {
+          console.error(`[API Key Manager] Fetch error with ${activeKey.state.name}:`, fetchError);
+          markKeyFailed(activeKey.keyId, 'Network error');
+          lastError = fetchError instanceof Error ? fetchError.message : 'Network error';
+          console.log(`[API Key Manager] ${activeKey.state.name} network error, trying next key...`);
+          response = null;
+          continue;
+        }
+      }
+    }
     // Check if we have a successful response
     if (!response || !response.ok) {
       console.error('[API Key Manager] All API keys exhausted or unavailable');
