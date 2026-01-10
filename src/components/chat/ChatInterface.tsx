@@ -184,20 +184,26 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
       return;
     }
     
-    // Check if it's an image file - auto-select Analyze Image mode
+    // Check if it's an image file
     if (file.type.startsWith('image/')) {
       const base64 = await fileToBase64(file);
       setUploadedImage(base64);
-      setImageMode('analyze');
+      
+      // Only set to 'analyze' if no image mode was already selected
+      // If user pre-selected a mode (generate/analyze/edit), keep that mode
+      if (imageMode === 'off') {
+        setImageMode('analyze');
+      }
       
       // Create preview
       const reader = new FileReader();
       reader.onload = (e) => setFilePreview(e.target?.result as string);
       reader.readAsDataURL(file);
       
+      const modeLabel = imageMode === 'off' ? 'Analyze' : imageMode.charAt(0).toUpperCase() + imageMode.slice(1);
       toast({ 
         title: "Image uploaded", 
-        description: "Analyze mode activated. Send to analyze or switch to Edit mode." 
+        description: `${modeLabel} mode active. Send to proceed.` 
       });
       return;
     }
