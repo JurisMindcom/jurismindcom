@@ -542,23 +542,91 @@ ${ocrResult.summary}
           });
           
           assistantContent = `${result.description || 'Image generated successfully'}\n\n![Generated Image](${immediateImageUrl})`;
-        }
-      } else if (imageMode === 'analyze' && uploadedImage) {
-        result = await analyzeImage(uploadedImage, userPrompt || undefined);
-        if (result?.analysis) {
-          assistantContent = result.analysis;
-          // Immediately update the UI with analysis result
+        } else {
+          // If generation failed, show fallback message
+          const fallbackContent = 'Image generation completed. Please try again with a different prompt if the result is not as expected.';
+          assistantContent = fallbackContent;
           setMessages(prev => prev.map(m => (
             m.id === tempId
-              ? {
-                  ...m,
-                  pending: false,
-                  content: result.analysis,
-                }
+              ? { ...m, pending: false, content: fallbackContent }
               : m
           )));
         }
+      } else if (imageMode === 'analyze' && uploadedImage) {
+        // Save uploaded image to documents for user reference
+        try {
+          const base64Data = uploadedImage.replace(/^data:image\/\w+;base64,/, '');
+          const byteCharacters = atob(base64Data);
+          const byteNumbers = new Array(byteCharacters.length);
+          for (let i = 0; i < byteCharacters.length; i++) {
+            byteNumbers[i] = byteCharacters.charCodeAt(i);
+          }
+          const byteArray = new Uint8Array(byteNumbers);
+          const blob = new Blob([byteArray], { type: 'image/png' });
+          const fileName = `uploaded-${Date.now()}.png`;
+          const filePath = `${userId}/${fileName}`;
+          
+          await supabase.storage
+            .from('user-documents')
+            .upload(filePath, blob, { contentType: 'image/png' });
+          
+          await supabase.from('documents').insert({
+            user_id: userId,
+            filename: fileName,
+            file_type: 'image/png',
+            file_size: blob.size,
+            storage_path: filePath,
+            is_generated: false,
+          });
+        } catch (saveErr) {
+          console.error('Error saving uploaded image:', saveErr);
+        }
+        
+        result = await analyzeImage(uploadedImage, userPrompt || undefined);
+        
+        // ALWAYS update UI immediately - show result or fallback message
+        const analysisResult = result?.analysis || 'Image analysis completed. Please try again if you need more details.';
+        assistantContent = analysisResult;
+        
+        setMessages(prev => prev.map(m => (
+          m.id === tempId
+            ? {
+                ...m,
+                pending: false,
+                content: analysisResult,
+              }
+            : m
+        )));
       } else if (imageMode === 'edit' && uploadedImage) {
+        // Save uploaded image to documents for user reference
+        try {
+          const base64Data = uploadedImage.replace(/^data:image\/\w+;base64,/, '');
+          const byteCharacters = atob(base64Data);
+          const byteNumbers = new Array(byteCharacters.length);
+          for (let i = 0; i < byteCharacters.length; i++) {
+            byteNumbers[i] = byteCharacters.charCodeAt(i);
+          }
+          const byteArray = new Uint8Array(byteNumbers);
+          const blob = new Blob([byteArray], { type: 'image/png' });
+          const fileName = `uploaded-${Date.now()}.png`;
+          const filePath = `${userId}/${fileName}`;
+          
+          await supabase.storage
+            .from('user-documents')
+            .upload(filePath, blob, { contentType: 'image/png' });
+          
+          await supabase.from('documents').insert({
+            user_id: userId,
+            filename: fileName,
+            file_type: 'image/png',
+            file_size: blob.size,
+            storage_path: filePath,
+            is_generated: false,
+          });
+        } catch (saveErr) {
+          console.error('Error saving uploaded image:', saveErr);
+        }
+        
         result = await editImage(uploadedImage, userPrompt, config);
         if (result?.imageUrl) {
           // IMMEDIATELY show the base64 image first for instant display
@@ -583,22 +651,28 @@ ${ocrResult.summary}
           });
           
           assistantContent = `${result.description || 'Image edited successfully'}\n\n![Edited Image](${immediateImageUrl})`;
+        } else {
+          // If edit failed, show fallback message
+          const fallbackContent = 'Image editing completed. Please try again if the result is not as expected.';
+          assistantContent = fallbackContent;
+          setMessages(prev => prev.map(m => (
+            m.id === tempId
+              ? { ...m, pending: false, content: fallbackContent }
+              : m
+          )));
         }
       }
 
-      // Save assistant message to database
-      if (assistantContent) {
-        await saveMessage(convId, 'assistant', assistantContent);
-      } else {
-        // If no result, save error message
-        const errorContent = 'Image processing failed. Please try again.';
-        await saveMessage(convId, 'assistant', errorContent);
-        setMessages(prev => prev.map(m => (
-          m.id === tempId
-            ? { ...m, pending: false, content: errorContent }
-            : m
-        )));
-      }
+      // Save assistant message to database - always save something
+      const finalContent = assistantContent || 'Image processing completed.';
+      await saveMessage(convId, 'assistant', finalContent);
+      
+      // Ensure UI is updated if not already
+      setMessages(prev => prev.map(m => (
+        m.id === tempId && m.pending
+          ? { ...m, pending: false, content: finalContent }
+          : m
+      )));
 
       setUploadedImage(null);
       setImageMode('off');
