@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import { motion } from 'framer-motion';
-import { Bot, User, Copy, Check, Loader2, Download } from 'lucide-react';
+import { Bot, User, Copy, Check, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Tooltip,
@@ -8,6 +8,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import ImageProcessingPlaceholder from './ImageProcessingPlaceholder';
 
 interface MessageItemProps {
   id: string;
@@ -19,6 +20,9 @@ interface MessageItemProps {
   onCopy: (text: string, id: string) => void;
   imageUrl?: string;
   pending?: boolean;
+  pendingMode?: 'generate' | 'analyze' | 'edit';
+  pendingAspectRatio?: string;
+  pendingOriginalImage?: string;
 }
 
 type ParsedImage = {
@@ -38,7 +42,7 @@ const parseFirstMarkdownImage = (content: string): ParsedImage => {
 };
 
 // Memoized message component to prevent unnecessary re-renders
-const MessageItem = memo(({ id, role, content, created_at, index, copiedId, onCopy, imageUrl, pending }: MessageItemProps) => {
+const MessageItem = memo(({ id, role, content, created_at, index, copiedId, onCopy, imageUrl, pending, pendingMode, pendingAspectRatio, pendingOriginalImage }: MessageItemProps) => {
   const parsed = role === 'assistant' ? parseFirstMarkdownImage(content) : null;
   const resolvedImageUrl = imageUrl || parsed?.url;
   const resolvedText = parsed ? parsed.rest : content;
@@ -57,11 +61,14 @@ const MessageItem = memo(({ id, role, content, created_at, index, copiedId, onCo
           </div>
 
           <div className="flex-1 min-w-0">
-            {pending ? (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                <span>{resolvedText || 'Processing image...'}</span>
-              </div>
+            {pending && pendingMode ? (
+              <ImageProcessingPlaceholder 
+                mode={pendingMode}
+                aspectRatio={pendingAspectRatio}
+                originalImage={pendingOriginalImage}
+              />
+            ) : pending ? (
+              <ImageProcessingPlaceholder mode="analyze" />
             ) : (
               <>
                 {resolvedImageUrl && (
@@ -178,7 +185,10 @@ const MessageItem = memo(({ id, role, content, created_at, index, copiedId, onCo
     prevProps.content === nextProps.content &&
     prevProps.copiedId === nextProps.copiedId &&
     prevProps.imageUrl === nextProps.imageUrl &&
-    prevProps.pending === nextProps.pending
+    prevProps.pending === nextProps.pending &&
+    prevProps.pendingMode === nextProps.pendingMode &&
+    prevProps.pendingAspectRatio === nextProps.pendingAspectRatio &&
+    prevProps.pendingOriginalImage === nextProps.pendingOriginalImage
   );
 });
 
