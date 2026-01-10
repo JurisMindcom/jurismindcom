@@ -74,7 +74,6 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const imageInputRef = useRef<HTMLInputElement>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(conversationId);
   const lastMessageRef = useRef<string>('');
@@ -185,18 +184,29 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
       return;
     }
     
-    setUploadedFile(file);
-    setFileAnalysis(null);
-    setOcrResult(null);
-    
-    // Create preview for images
+    // Check if it's an image file - auto-select Analyze Image mode
     if (file.type.startsWith('image/')) {
+      const base64 = await fileToBase64(file);
+      setUploadedImage(base64);
+      setImageMode('analyze');
+      
+      // Create preview
       const reader = new FileReader();
       reader.onload = (e) => setFilePreview(e.target?.result as string);
       reader.readAsDataURL(file);
-    } else {
-      setFilePreview(null);
+      
+      toast({ 
+        title: "Image uploaded", 
+        description: "Analyze mode activated. Send to analyze or switch to Edit mode." 
+      });
+      return;
     }
+    
+    // For non-image files, proceed with normal document handling
+    setUploadedFile(file);
+    setFileAnalysis(null);
+    setOcrResult(null);
+    setFilePreview(null);
     
     // Auto-analyze the file immediately
     try {
@@ -208,8 +218,8 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
       const analysis = await analyzeFileContent(file, extractedText);
       setFileAnalysis(analysis);
       
-      // For images and PDFs, trigger advanced OCR automatically
-      if (file.type.startsWith('image/') || file.type === 'application/pdf') {
+      // For PDFs, trigger advanced OCR automatically
+      if (file.type === 'application/pdf') {
         await runAdvancedOcr(file);
       }
       
@@ -220,19 +230,6 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
     } catch (err) {
       toast({ title: "File attached", description: `${file.name} ready for analysis.` });
     }
-  };
-
-  // Handle image upload for Image AI
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !file.type.startsWith('image/')) {
-      toast({ title: "Invalid file", description: "Please upload an image file.", variant: "destructive" });
-      return;
-    }
-
-    const base64 = await fileToBase64(file);
-    setUploadedImage(base64);
-    toast({ title: "Image uploaded", description: "Ready for analysis or editing." });
   };
 
   // Advanced OCR using Gemini Vision
@@ -862,74 +859,23 @@ ${scrapedContent.content?.substring(0, 15000) || 'No content extracted'}
       </ScrollArea>
 
       <div className="p-4 border-t border-border glass-panel">
-        {/* Image Mode Bar - shows when image mode is active */}
-        {imageMode !== 'off' && (
-          <div className="mb-3 p-3 bg-gradient-to-r from-pink-500/10 to-purple-500/10 border border-pink-500/30 rounded-lg">
-            <div className="flex items-center justify-between gap-3 flex-wrap">
-              <div className="flex items-center gap-3 min-w-0">
-                <div className="w-10 h-10 bg-gradient-to-br from-pink-500/20 to-purple-500/20 rounded-lg flex items-center justify-center">
-                  {imageMode === 'generate' && <Sparkles className="h-5 w-5 text-pink-500" />}
-                  {imageMode === 'analyze' && <Scan className="h-5 w-5 text-blue-500" />}
-                  {imageMode === 'edit' && <ImageIcon className="h-5 w-5 text-purple-500" />}
-                </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-medium truncate">
-                    {imageMode === 'generate' && '🎨 Image Generation Mode'}
-                    {imageMode === 'analyze' && '🔍 Image Analysis Mode'}
-                    {imageMode === 'edit' && '✏️ Image Editing Mode'}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {(imageMode === 'generate' || imageMode === 'edit')
-                      ? `Aspect ratio: ${imageAspectRatio}`
-                      : (uploadedImage ? 'Image ready' : 'Upload an image')}
-                  </p>
-                </div>
-              </div>
-
-              {(imageMode === 'generate' || imageMode === 'edit') && (
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground">Ratio</span>
-                  <Select value={imageAspectRatio} onValueChange={(v) => setImageAspectRatio(v as any)}>
-                    <SelectTrigger className="h-8 w-[140px]">
-                      <SelectValue placeholder="1:1" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="1:1">1:1 (Square)</SelectItem>
-                      <SelectItem value="16:9">16:9 (Wide)</SelectItem>
-                      <SelectItem value="9:16">9:16 (Tall)</SelectItem>
-                      <SelectItem value="3:2">3:2</SelectItem>
-                      <SelectItem value="2:3">2:3</SelectItem>
-                      <SelectItem value="4:3">4:3</SelectItem>
-                      <SelectItem value="3:4">3:4</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-
-              <div className="flex items-center gap-2">
-                {(imageMode === 'analyze' || imageMode === 'edit') && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => imageInputRef.current?.click()}
-                    className="text-xs"
-                  >
-                    <Upload className="h-3 w-3 mr-1" />
-                    {uploadedImage ? 'Replace Image' : 'Upload Image'}
-                  </Button>
-                )}
-
-                {uploadedImage && (imageMode === 'analyze' || imageMode === 'edit') && (
-                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setUploadedImage(null)}>
-                    <X className="h-4 w-4" />
-                  </Button>
-                )}
-
-                <Button variant="ghost" size="sm" onClick={() => { setImageMode('off'); setUploadedImage(null); }}>
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
+        {/* Uploaded image preview for Image AI analyze/edit modes */}
+        {uploadedImage && (imageMode === 'analyze' || imageMode === 'edit') && (
+          <div className="mb-3 p-2 bg-muted/50 rounded-lg flex items-center gap-2">
+            <img 
+              src={uploadedImage} 
+              alt="Uploaded" 
+              className="h-12 w-12 object-cover rounded"
+            />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium truncate">Image ready for {imageMode === 'analyze' ? 'analysis' : 'editing'}</p>
+              <p className="text-xs text-muted-foreground">
+                {imageMode === 'edit' && `Ratio: ${imageAspectRatio}`}
+              </p>
             </div>
+            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setUploadedImage(null)}>
+              <X className="h-4 w-4" />
+            </Button>
           </div>
         )}
 
@@ -1073,8 +1019,11 @@ ${scrapedContent.content?.substring(0, 15000) || 'No content extracted'}
                 size="sm"
                 className={`h-8 text-xs gap-1 ${imageMode !== 'off' ? 'bg-gradient-to-r from-pink-500/20 to-purple-500/20 border-pink-500/50' : ''}`}
               >
-                <ImageIcon className={`h-3 w-3 ${imageMode !== 'off' ? 'text-pink-500' : ''}`} />
-                Image AI
+                {imageMode === 'generate' && <Sparkles className="h-3 w-3 text-pink-500" />}
+                {imageMode === 'analyze' && <Scan className="h-3 w-3 text-blue-500" />}
+                {imageMode === 'edit' && <ImageIcon className="h-3 w-3 text-purple-500" />}
+                {imageMode === 'off' && <ImageIcon className="h-3 w-3" />}
+                {imageMode === 'off' ? 'Image AI' : imageMode === 'generate' ? 'Generate' : imageMode === 'analyze' ? 'Analyze' : 'Edit'}
                 <ChevronDown className="h-3 w-3 opacity-50" />
               </Button>
             </DropdownMenuTrigger>
@@ -1120,6 +1069,24 @@ ${scrapedContent.content?.substring(0, 15000) || 'No content extracted'}
               )}
             </DropdownMenuContent>
           </DropdownMenu>
+
+          {/* Aspect ratio selector - shows when generate or edit mode is active */}
+          {(imageMode === 'generate' || imageMode === 'edit') && (
+            <Select value={imageAspectRatio} onValueChange={(v) => setImageAspectRatio(v as any)}>
+              <SelectTrigger className="h-8 w-[100px] text-xs">
+                <SelectValue placeholder="1:1" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="1:1">1:1</SelectItem>
+                <SelectItem value="16:9">16:9</SelectItem>
+                <SelectItem value="9:16">9:16</SelectItem>
+                <SelectItem value="3:2">3:2</SelectItem>
+                <SelectItem value="2:3">2:3</SelectItem>
+                <SelectItem value="4:3">4:3</SelectItem>
+                <SelectItem value="3:4">3:4</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
         </div>
 
         {/* Input Area */}
@@ -1137,7 +1104,6 @@ ${scrapedContent.content?.substring(0, 15000) || 'No content extracted'}
             </TooltipProvider>
             
             <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileUpload} accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png,.xlsx,.xls,.zip,.webp,.bmp,.tiff,.gif" />
-            <input ref={imageInputRef} type="file" className="hidden" onChange={handleImageUpload} accept="image/*" />
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
