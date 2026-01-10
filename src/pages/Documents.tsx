@@ -179,19 +179,40 @@ const Documents = () => {
   };
 
   const handleDownload = async (doc: Document) => {
-    const bucket = doc.is_generated ? 'generated-images' : 'user-documents';
-    const { data, error } = await supabase.storage
-      .from(bucket)
-      .download(doc.storage_path);
+    try {
+      const bucket = doc.is_generated ? 'generated-images' : 'user-documents';
+      const { data, error } = await supabase.storage
+        .from(bucket)
+        .download(doc.storage_path);
 
-    if (data) {
-      const url = URL.createObjectURL(data);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = doc.filename;
-      a.click();
-      URL.revokeObjectURL(url);
-      toast({ title: "Downloaded", description: `${doc.filename} downloaded.` });
+      if (error) throw error;
+
+      if (data) {
+        const url = URL.createObjectURL(data);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = doc.filename;
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        // Delay revoke to ensure download starts on mobile
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        toast({ title: "Downloaded", description: `${doc.filename} downloaded.` });
+      }
+    } catch (err: any) {
+      console.error('Download error:', err);
+      // Fallback: try to open public URL in new tab
+      try {
+        const bucket = doc.is_generated ? 'generated-images' : 'user-documents';
+        const { data } = supabase.storage.from(bucket).getPublicUrl(doc.storage_path);
+        if (data?.publicUrl) {
+          window.open(data.publicUrl, '_blank');
+          toast({ title: "Opening file", description: "File opened in new tab." });
+        }
+      } catch {
+        toast({ title: "Download failed", description: err.message || "Could not download file.", variant: "destructive" });
+      }
     }
   };
 

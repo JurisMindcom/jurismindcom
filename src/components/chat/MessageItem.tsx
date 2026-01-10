@@ -82,11 +82,29 @@ const MessageItem = memo(({ id, role, content, created_at, index, copiedId, onCo
                       />
                     </div>
                     <div className="mt-2 flex items-center gap-2">
-                      <Button asChild size="sm" variant="secondary">
-                        <a href={resolvedImageUrl} download={`jurismind-image-${id}.png`}>
-                          <Download className="h-4 w-4 mr-1" />
-                          Download
-                        </a>
+                      <Button 
+                        size="sm" 
+                        variant="secondary"
+                        onClick={async () => {
+                          try {
+                            const response = await fetch(resolvedImageUrl);
+                            const blob = await response.blob();
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = `jurismind-image-${id}.png`;
+                            document.body.appendChild(a);
+                            a.click();
+                            document.body.removeChild(a);
+                            URL.revokeObjectURL(url);
+                          } catch (err) {
+                            // Fallback: open in new tab
+                            window.open(resolvedImageUrl, '_blank');
+                          }
+                        }}
+                      >
+                        <Download className="h-4 w-4 mr-1" />
+                        Download
                       </Button>
                     </div>
                   </div>
