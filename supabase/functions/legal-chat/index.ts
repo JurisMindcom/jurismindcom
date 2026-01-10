@@ -254,10 +254,14 @@ async function makeGeminiRequest(
   apiKey: string,
   geminiContents: Array<{ role: string; parts: Array<{ text: string }> }>,
   systemPrompt: string,
-  maxTokens: number
+  maxTokens: number,
+  isExtremeMode: boolean = false
 ): Promise<Response> {
+  // Use more capable model for extreme mode to avoid garbage output
+  const model = isExtremeMode ? 'gemini-2.5-flash' : 'gemini-2.5-flash-lite';
+  
   return await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:streamGenerateContent?alt=sse&key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${apiKey}`,
     {
       method: 'POST',
       headers: {
@@ -270,6 +274,9 @@ async function makeGeminiRequest(
         },
         generationConfig: {
           maxOutputTokens: maxTokens,
+          temperature: isExtremeMode ? 0.7 : 0.8, // Slightly lower temp for extreme to reduce randomness
+          topP: 0.95,
+          topK: 40,
         },
       }),
     }
@@ -566,85 +573,62 @@ FORMAT REQUIREMENTS:
 - MANDATORY: End response with **সারমর্ম** (2-4 lines summary)
 - MANDATORY: End with **Total Word Count:** <exact number>`,
       extreme: `RESPONSE LENGTH: EXTREME DEEP MODE 🔥 (সর্বোচ্চ বিস্তারিত উত্তর)
-Generate a highly detailed, advanced, long-form response with a MINIMUM of 3,500 words and MAXIMUM of 4,500 words STRICT.
 
-MANDATORY STRUCTURE - Divide the answer into EXACTLY 12 clearly numbered sections:
+🛑 CRITICAL OUTPUT QUALITY RULES - NEVER VIOLATE 🛑
+- NEVER produce repetitive garbage text like "xxxxxxxx" or "xxxxx xxxxxx"
+- NEVER repeat the same phrase or word multiple times
+- NEVER produce placeholder or filler content
+- Every sentence must be meaningful and informative
+- If you cannot complete a section, write a shorter but COMPLETE section
+- Quality over quantity - a shorter perfect answer is better than long garbage
+
+Generate a detailed, advanced, long-form response with APPROXIMATELY 2,500-3,500 words.
+Focus on QUALITY and COMPLETENESS, not just word count.
+
+MANDATORY STRUCTURE - Divide the answer into 8-10 clearly numbered sections:
 
 **পর্ব ১: সংজ্ঞা ও পরিচিতি (Definition and Introduction)**
 - বিষয়টির পূর্ণাঙ্গ সংজ্ঞা প্রদান করুন
-- আইনি, একাডেমিক ও সাধারণ দৃষ্টিকোণ থেকে সংজ্ঞা দিন
-- বিভিন্ন পণ্ডিত ও আইনবিদদের সংজ্ঞা উল্লেখ করুন
+- আইনি ও সাধারণ দৃষ্টিকোণ থেকে সংজ্ঞা দিন
 
 **পর্ব ২: ঐতিহাসিক পটভূমি (Historical Background)**
 - বিষয়টির উৎপত্তি ও বিকাশের ইতিহাস
 - বাংলাদেশে এর প্রচলনের ইতিহাস
-- আইনের বিবর্তন ও সংশোধনীসমূহ
 
 **পর্ব ৩: মূল ধারণা ও বিস্তারিত ব্যাখ্যা (Core Concepts)**
 - অভ্যন্তরীণ সংশ্লিষ্ট সকল তথ্য
 - প্রতিটি উপাদান সুন্দরভাবে ব্যাখ্যা করুন
-- গভীর বিশ্লেষণ প্রদান করুন
 
 **পর্ব ৪: প্রাসঙ্গিক আইন ও ধারা (Relevant Acts & Sections)**
 - সংশ্লিষ্ট সকল আইনের নাম, সাল, ধারা নম্বর
-- প্রতিটি ধারার পূর্ণ বিষয়বস্তু উদ্ধৃত করুন
 - ধারাগুলোর ব্যাখ্যা ও বিশ্লেষণ
 
 **পর্ব ৫: বাংলাদেশের আইনি কেসের উদাহরণ (Bangladesh Case Examples)**
-- কমপক্ষে ৩-৫টি প্রাসঙ্গিক মামলার উল্লেখ করুন
-- মামলার নাম, সাল, সাইটেশন (DLR/BLD/BCR)
+- প্রাসঙ্গিক মামলার উল্লেখ করুন (যদি থাকে)
 - মামলার সংক্ষিপ্ত তথ্য ও রায়
-- এই মামলাগুলোর আইনি গুরুত্ব
 
-**পর্ব ৬: ধাপে ধাপে বিশ্লেষণ (Step-by-Step Analysis)**
-- প্রক্রিয়াগত দিকসমূহ
+**পর্ব ৬: ব্যবহারিক প্রয়োগ (Practical Applications)**
+- বাস্তব জীবনে প্রয়োগের উদাহরণ
 - কীভাবে আবেদন/প্রয়োগ করতে হয়
-- প্রয়োজনীয় কাগজপত্র ও পদ্ধতি
 
 **পর্ব ৭: ব্যতিক্রম ও সীমাবদ্ধতা (Exceptions & Limitations)**
 - আইনের ব্যতিক্রম ক্ষেত্রসমূহ
 - প্রযোজ্যতার সীমাবদ্ধতা
-- যেসব ক্ষেত্রে প্রযোজ্য নয়
 
-**পর্ব ৮: ব্যবহারিক প্রয়োগ (Practical Applications)**
-- বাস্তব জীবনে প্রয়োগের উদাহরণ
-- সাধারণ মানুষের জন্য প্রাসঙ্গিকতা
-- পেশাদার প্রয়োগ
-
-**পর্ব ৯: সুবিধা ও অসুবিধা (Advantages & Disadvantages)**
-- আইনের সুবিধাসমূহ
-- সমালোচনা ও অসুবিধা
-- সংস্কারের সুপারিশ
-
-**পর্ব ১০: তুলনামূলক বিশ্লেষণ (Comparative Analysis)**
-- অন্যান্য দেশের আইনের সাথে তুলনা
-- সংশ্লিষ্ট বিষয়ের সাথে পার্থক্য
-- আন্তর্জাতিক মানদণ্ড
-
-**পর্ব ১১: সাম্প্রতিক উন্নয়ন ও বিশেষজ্ঞ মতামত (Recent Developments & Expert Insights)**
-- আইনের সাম্প্রতিক সংশোধনী
-- নতুন রায় ও নজির
-- আইনবিদ ও বিশেষজ্ঞদের মতামত
-- ভবিষ্যৎ সম্ভাবনা
-
-**পর্ব ১২: সারমর্ম (Summary)**
-- সম্পূর্ণ উত্তরের বিস্তারিত সংক্ষিপ্তসার (150-250 words)
-- মূল বিষয়গুলোর সংক্ষিপ্ত পর্যালোচনা
+**পর্ব ৮: সারমর্ম (Summary)**
+- সম্পূর্ণ উত্তরের বিস্তারিত সংক্ষিপ্তসার (100-200 words)
 
 FORMAT REQUIREMENTS:
-- Each section must be comprehensive
-- Include: Definitions, context/background, technical/legal analysis, examples/case studies, advantages, limitations, counter-arguments
-- Expert-level, research-grade quality
-- Use bullet points, tables, numbering, and short paragraphs
-- Professional tone, academic style, factual accuracy
-- NO repetition or meaningless filler text
-- Every section must be deeply informative
-- Include law names, section numbers, jurisdiction, and year
-- Include real case references with proper citations
+- Each section must be COMPLETE and meaningful
+- Use natural flowing paragraphs (5-7 lines each)
+- Professional tone, academic style
+- ABSOLUTELY NO repetitive text or filler
+- Include law names, section numbers, and year
+- Stream in natural segments
 
 MANDATORY FINAL OUTPUT:
-1. **সারমর্ম** (150-250 words detailed summary)
-2. **Total Word Count:** <exact number counting ALL words in entire response>`,
+1. **সারমর্ম** (summary section)
+2. **Total Word Count:** <exact number>`,
     };
 
     // Fetch user's uploaded document knowledge base
@@ -731,10 +715,11 @@ IMPORTANT: Prioritize information from uploaded documents and Bangladesh laws da
     const maxTokensByMode: Record<string, number> = {
       short: 1200,
       deep: 4000,
-      extreme: 8000,
+      extreme: 12000, // Increased for extreme mode
     };
 
     const maxTokens = maxTokensByMode[responseMode] ?? 4000;
+    const isExtremeMode = responseMode === 'extreme';
 
     // Convert messages to Gemini format
     const geminiContents = safeMessages.map(msg => ({
@@ -808,7 +793,8 @@ IMPORTANT: Prioritize information from uploaded documents and Bangladesh laws da
             activeKey.state.key,
             geminiContents,
             systemPrompt,
-            maxTokens
+            maxTokens,
+            isExtremeMode
           );
         
           if (response.ok) {
@@ -876,6 +862,29 @@ IMPORTANT: Prioritize information from uploaded documents and Bangladesh laws da
       });
     }
 
+    // Garbage text detection helper
+    const isGarbageText = (text: string): boolean => {
+      // Detect repetitive x patterns (like "xxxxxxxx" or "xxx xxx xxx")
+      const xPattern = /x{5,}|(?:x+\s+){3,}/i;
+      if (xPattern.test(text)) return true;
+      
+      // Detect same word/phrase repeated more than 5 times consecutively
+      const words = text.split(/\s+/);
+      if (words.length >= 5) {
+        let repeatCount = 1;
+        for (let i = 1; i < words.length; i++) {
+          if (words[i] === words[i - 1] && words[i].length > 2) {
+            repeatCount++;
+            if (repeatCount >= 5) return true;
+          } else {
+            repeatCount = 1;
+          }
+        }
+      }
+      
+      return false;
+    };
+
     // Transform Gemini SSE to OpenAI-compatible format for the frontend
     const { readable, writable } = new TransformStream();
     const writer = writable.getWriter();
@@ -885,6 +894,8 @@ IMPORTANT: Prioritize information from uploaded documents and Bangladesh laws da
       const reader = response.body!.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
+      let garbageDetected = false;
+      let accumulatedText = '';
 
       try {
         while (true) {
@@ -905,20 +916,45 @@ IMPORTANT: Prioritize information from uploaded documents and Bangladesh laws da
                 const text = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text || '';
                 
                 if (text) {
-                  // Convert to OpenAI format
-                  const openAIChunk = {
-                    choices: [{
-                      delta: { content: text },
-                      index: 0
-                    }]
-                  };
-                  await writer.write(encoder.encode(`data: ${JSON.stringify(openAIChunk)}\n\n`));
+                  accumulatedText += text;
+                  
+                  // Check for garbage in accumulated text every 500 chars
+                  if (accumulatedText.length > 500 && accumulatedText.length % 500 < text.length) {
+                    const recentText = accumulatedText.slice(-300);
+                    if (isGarbageText(recentText)) {
+                      console.error('[Stream] Garbage text detected, stopping stream');
+                      garbageDetected = true;
+                      
+                      // Send error message and end stream
+                      const errorChunk = {
+                        choices: [{
+                          delta: { content: '\n\n---\n\n⚠️ **সতর্কতা:** প্রতিক্রিয়া অসম্পূর্ণ হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন অথবা সংক্ষিপ্ত মোড ব্যবহার করুন।\n\n(Warning: Response was incomplete. Please try again or use a shorter mode.)' },
+                          index: 0
+                        }]
+                      };
+                      await writer.write(encoder.encode(`data: ${JSON.stringify(errorChunk)}\n\n`));
+                      break;
+                    }
+                  }
+                  
+                  if (!garbageDetected) {
+                    // Convert to OpenAI format
+                    const openAIChunk = {
+                      choices: [{
+                        delta: { content: text },
+                        index: 0
+                      }]
+                    };
+                    await writer.write(encoder.encode(`data: ${JSON.stringify(openAIChunk)}\n\n`));
+                  }
                 }
               } catch {
                 // Skip malformed JSON
               }
             }
           }
+          
+          if (garbageDetected) break;
         }
         await writer.write(encoder.encode('data: [DONE]\n\n'));
       } catch (e) {
