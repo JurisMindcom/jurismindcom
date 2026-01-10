@@ -41,6 +41,9 @@ interface Message {
   created_at: string;
   imageUrl?: string;
   pending?: boolean;
+  pendingMode?: 'generate' | 'analyze' | 'edit';
+  pendingAspectRatio?: string;
+  pendingOriginalImage?: string;
 }
 
 
@@ -470,15 +473,12 @@ ${ocrResult.summary}
       {
         id: tempId,
         role: 'assistant',
-        content:
-          imageMode === 'generate'
-            ? 'Generating image...'
-            : imageMode === 'edit'
-              ? 'Editing image...'
-              : 'Analyzing image...'
-        ,
+        content: '',
         created_at: nowIso,
         pending: true,
+        pendingMode: imageMode as 'generate' | 'analyze' | 'edit',
+        pendingAspectRatio: imageAspectRatio,
+        pendingOriginalImage: (imageMode === 'edit') && uploadedImage ? uploadedImage : undefined,
       },
     ]);
 
@@ -833,6 +833,9 @@ ${scrapedContent.content?.substring(0, 15000) || 'No content extracted'}
                   onCopy={handleCopy}
                   imageUrl={message.imageUrl}
                   pending={message.pending}
+                  pendingMode={message.pendingMode}
+                  pendingAspectRatio={message.pendingAspectRatio}
+                  pendingOriginalImage={message.pendingOriginalImage}
                 />
               ))}
 
@@ -865,13 +868,14 @@ ${scrapedContent.content?.substring(0, 15000) || 'No content extracted'}
                 />
               )}
 
-              {isLoading && !isStreaming && (
+              {/* Text-only loading state (not for image processing which uses inline placeholder) */}
+              {isLoading && !isStreaming && !isImageProcessing && (
                 <motion.div className="flex gap-3" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
                   <div className="p-2 rounded-lg bg-primary/20 h-fit"><Bot className="w-5 h-5 text-primary" /></div>
                   <Card className="glass-panel p-4">
                     <div className="flex items-center gap-2">
                       <Loader2 className="w-4 h-4 animate-spin" />
-                      <p className="text-sm">{isImageProcessing ? 'Processing image...' : 'Thinking...'}</p>
+                      <p className="text-sm">Thinking...</p>
                     </div>
                   </Card>
                 </motion.div>
