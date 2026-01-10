@@ -457,6 +457,7 @@ ${ocrResult.summary}
         : `🔍 Analyze image${userPrompt ? `: ${userPrompt}` : ''}`;
 
     // Always show the user prompt + an in-chat processing message
+    // For analyze/edit, also include the uploaded image in user message for immediate display
     setMessages(prev => [
       ...prev,
       {
@@ -464,6 +465,7 @@ ${ocrResult.summary}
         role: 'user',
         content: userContent,
         created_at: nowIso,
+        imageUrl: (imageMode === 'analyze' || imageMode === 'edit') && uploadedImage ? uploadedImage : undefined,
       },
       {
         id: tempId,
@@ -518,25 +520,34 @@ ${ocrResult.summary}
       if (imageMode === 'generate') {
         result = await generateImage(userPrompt, config);
         if (result?.imageUrl) {
-          // Save image to storage
-          savedImageUrl = await saveGeneratedImage(result.imageUrl, userPrompt, imageAspectRatio);
-          assistantContent = `${result.description || 'Image generated successfully'}\n\n![Generated Image](${savedImageUrl || result.imageUrl})`;
-          
+          // IMMEDIATELY show the base64 image first for instant display
+          const immediateImageUrl = result.imageUrl;
           setMessages(prev => prev.map(m => (
             m.id === tempId
               ? {
                   ...m,
                   pending: false,
-                  imageUrl: savedImageUrl || result.imageUrl,
+                  imageUrl: immediateImageUrl,
                   content: result.description || 'Image generated successfully',
                 }
               : m
           )));
+          
+          // Save image to storage in background (non-blocking)
+          saveGeneratedImage(result.imageUrl, userPrompt, imageAspectRatio).then(storedUrl => {
+            if (storedUrl) {
+              savedImageUrl = storedUrl;
+              assistantContent = `${result.description || 'Image generated successfully'}\n\n![Generated Image](${storedUrl})`;
+            }
+          });
+          
+          assistantContent = `${result.description || 'Image generated successfully'}\n\n![Generated Image](${immediateImageUrl})`;
         }
       } else if (imageMode === 'analyze' && uploadedImage) {
         result = await analyzeImage(uploadedImage, userPrompt || undefined);
         if (result?.analysis) {
           assistantContent = result.analysis;
+          // Immediately update the UI with analysis result
           setMessages(prev => prev.map(m => (
             m.id === tempId
               ? {
@@ -550,20 +561,28 @@ ${ocrResult.summary}
       } else if (imageMode === 'edit' && uploadedImage) {
         result = await editImage(uploadedImage, userPrompt, config);
         if (result?.imageUrl) {
-          // Save edited image to storage
-          savedImageUrl = await saveGeneratedImage(result.imageUrl, userPrompt, imageAspectRatio);
-          assistantContent = `${result.description || 'Image edited successfully'}\n\n![Edited Image](${savedImageUrl || result.imageUrl})`;
-          
+          // IMMEDIATELY show the base64 image first for instant display
+          const immediateImageUrl = result.imageUrl;
           setMessages(prev => prev.map(m => (
             m.id === tempId
               ? {
                   ...m,
                   pending: false,
-                  imageUrl: savedImageUrl || result.imageUrl,
+                  imageUrl: immediateImageUrl,
                   content: result.description || 'Image edited successfully',
                 }
               : m
           )));
+          
+          // Save edited image to storage in background (non-blocking)
+          saveGeneratedImage(result.imageUrl, userPrompt, imageAspectRatio).then(storedUrl => {
+            if (storedUrl) {
+              savedImageUrl = storedUrl;
+              assistantContent = `${result.description || 'Image edited successfully'}\n\n![Edited Image](${storedUrl})`;
+            }
+          });
+          
+          assistantContent = `${result.description || 'Image edited successfully'}\n\n![Edited Image](${immediateImageUrl})`;
         }
       }
 
