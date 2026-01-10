@@ -70,7 +70,7 @@ const MessageItem = memo(({ id, role, content, created_at, index, copiedId, onCo
                       <img
                         src={resolvedImageUrl}
                         alt={parsed?.alt || 'Generated image'}
-                        loading="lazy"
+                        loading="eager"
                         className="w-full h-auto block"
                       />
                     </div>
@@ -122,7 +122,7 @@ const MessageItem = memo(({ id, role, content, created_at, index, copiedId, onCo
     );
   }
 
-  // User message: Right-aligned bubble style with copy button
+  // User message: Right-aligned bubble style with copy button and optional image
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
@@ -131,6 +131,17 @@ const MessageItem = memo(({ id, role, content, created_at, index, copiedId, onCo
       className="flex justify-end gap-3 group"
     >
       <div className="max-w-[80%]">
+        {/* Show uploaded image immediately if present */}
+        {imageUrl && (
+          <div className="mb-2 rounded-xl border border-border bg-card overflow-hidden shadow-sm max-w-[280px] ml-auto">
+            <img
+              src={imageUrl}
+              alt="Uploaded image"
+              loading="eager"
+              className="w-full h-auto block"
+            />
+          </div>
+        )}
         <div className="p-4 rounded-2xl bg-gradient-to-br from-primary to-primary-glow text-primary-foreground">
           <p className="text-sm whitespace-pre-wrap break-words">{content}</p>
         </div>
