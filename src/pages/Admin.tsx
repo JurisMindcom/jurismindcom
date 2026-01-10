@@ -45,6 +45,7 @@ interface Document {
   id: string;
   filename: string;
   file_type: string;
+  storage_path: string;
   created_at: string;
 }
 
@@ -112,6 +113,11 @@ const Admin = () => {
   const [conversationMessages, setConversationMessages] = useState<Message[]>([]);
   const [loadingUserData, setLoadingUserData] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  
+  // Document Viewer State
+  const [viewingDocument, setViewingDocument] = useState<Document | null>(null);
+  const [documentUrl, setDocumentUrl] = useState<string | null>(null);
+  const [loadingDocumentUrl, setLoadingDocumentUrl] = useState(false);
 
   useEffect(() => {
     checkAdminAccess();
@@ -391,6 +397,44 @@ const Admin = () => {
       .eq('conversation_id', conv.id)
       .order('created_at', { ascending: true });
     setConversationMessages(data || []);
+  };
+
+  const openDocumentViewer = async (doc: Document) => {
+    setViewingDocument(doc);
+    setLoadingDocumentUrl(true);
+    setDocumentUrl(null);
+    
+    try {
+      const { data } = await supabase.storage
+        .from('user-documents')
+        .createSignedUrl(doc.storage_path, 3600); // 1 hour expiry
+      
+      if (data?.signedUrl) {
+        setDocumentUrl(data.signedUrl);
+      }
+    } catch (error) {
+      console.error('Error getting document URL:', error);
+      toast({ 
+        title: "Error", 
+        description: "Failed to load document.", 
+        variant: "destructive" 
+      });
+    } finally {
+      setLoadingDocumentUrl(false);
+    }
+  };
+
+  const closeDocumentViewer = () => {
+    setViewingDocument(null);
+    setDocumentUrl(null);
+  };
+
+  const isImageFile = (fileType: string) => {
+    return fileType.startsWith('image/') || ['jpg', 'jpeg', 'png', 'gif', 'webp'].some(ext => fileType.toLowerCase().includes(ext));
+  };
+
+  const isPdfFile = (fileType: string) => {
+    return fileType.includes('pdf');
   };
 
   const exportToCSV = (data: any[], filename: string) => {
@@ -1082,12 +1126,17 @@ const Admin = () => {
                       <p className="text-center text-muted-foreground py-8">No documents</p>
                     ) : (
                       userDocuments.map((doc) => (
-                        <div key={doc.id} className="p-3 rounded-lg bg-secondary/50 flex items-center gap-3">
+                        <div 
+                          key={doc.id} 
+                          className="p-3 rounded-lg bg-secondary/50 flex items-center gap-3 cursor-pointer hover:bg-secondary/80 transition-colors"
+                          onClick={() => openDocumentViewer(doc)}
+                        >
                           <FileText className="h-5 w-5 text-primary" />
                           <div className="flex-1">
                             <p className="font-medium truncate">{doc.filename}</p>
                             <p className="text-xs text-muted-foreground">{doc.file_type} • {new Date(doc.created_at).toLocaleDateString()}</p>
                           </div>
+                          <Eye className="h-4 w-4 text-muted-foreground" />
                         </div>
                       ))
                     )}
@@ -1169,7 +1218,78 @@ const Admin = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Footer */}
+      {/* Document Viewer Dialog */}
+      <Dialog open={!!viewingDocument} onOpenChange={closeDocumentViewer}>
+        <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="h-5 w-5 text-primary" />
+              {viewingDocument?.filename}
+            </DialogTitle>
+            <DialogDescription>
+              {viewingDocument?.file_type} • {viewingDocument && new Date(viewingDocument.created_at).toLocaleDateString()}
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="flex-1 overflow-auto min-h-[400px] bg-muted/30 rounded-lg">
+            {loadingDocumentUrl ? (
+              <div className="flex items-center justify-center h-full">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              </div>
+            ) : documentUrl ? (
+              viewingDocument && isImageFile(viewingDocument.file_type) ? (
+                <div className="flex items-center justify-center p-4 h-full">
+                  <img 
+                    src={documentUrl} 
+                    alt={viewingDocument.filename}
+                    className="max-w-full max-h-[60vh] object-contain rounded-lg shadow-lg"
+                  />
+                </div>
+              ) : viewingDocument && isPdfFile(viewingDocument.file_type) ? (
+                <iframe 
+                  src={documentUrl}
+                  className="w-full h-[60vh] rounded-lg"
+                  title={viewingDocument.filename}
+                />
+              ) : (
+                <div className="flex flex-col items-center justify-center h-full p-8 text-center">
+                  <FileText className="h-16 w-16 text-muted-foreground mb-4" />
+                  <p className="text-muted-foreground mb-4">Preview not available for this file type</p>
+                  <a 
+                    href={documentUrl} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="text-primary hover:underline"
+                  >
+                    Open in new tab
+                  </a>
+                </div>
+              )
+            ) : (
+              <div className="flex items-center justify-center h-full">
+                <p className="text-muted-foreground">Failed to load document</p>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            {documentUrl && (
+              <a 
+                href={documentUrl} 
+                download={viewingDocument?.filename}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <Button variant="outline">
+                  <Download className="mr-2 h-4 w-4" />
+                  Download
+                </Button>
+              </a>
+            )}
+            <Button onClick={closeDocumentViewer}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <footer className="py-8 px-4 border-t border-border">
         <div className="container mx-auto text-center">
           <p className="text-muted-foreground">
