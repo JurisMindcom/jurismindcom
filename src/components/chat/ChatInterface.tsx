@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Send, Mic, MicOff, Languages, Bot, Loader2, UserCircle,
-  Zap, BookOpen, Upload, X, FileText, AlertCircle, Globe, Scan, Flame, ChevronDown, ImageIcon, Sparkles
+  Zap, BookOpen, Upload, X, FileText, AlertCircle, Globe, Scan, Flame, ChevronDown, ImageIcon, Sparkles, Images
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -30,9 +30,11 @@ import MessageItem from './MessageItem';
 import StreamingMessage from './StreamingMessage';
 import useIncrementalStream from '@/hooks/useIncrementalStream';
 import useImageAI from '@/hooks/useImageAI';
+import ImageCustomizationPanel, { ImageCustomization } from './ImageCustomizationPanel';
 
 // Memory cap: keep only last N messages in state
 const MAX_MESSAGES_IN_MEMORY = 100;
+const MAX_MULTI_IMAGES = 10;
 
 interface Message {
   id: string;
@@ -72,8 +74,13 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
   const [scrapedContent, setScrapedContent] = useState<any>(null);
   const [isScrapingUrl, setIsScrapingUrl] = useState(false);
   const [imageMode, setImageMode] = useState<'off' | 'generate' | 'analyze' | 'edit'>('off');
-  const [imageAspectRatio, setImageAspectRatio] = useState<'1:1' | '16:9' | '9:16' | '3:2' | '2:3' | '4:3' | '3:4'>('1:1');
+  const [imageCustomization, setImageCustomization] = useState<ImageCustomization>({
+    aspectRatio: 'auto',
+    style: 'normal',
+    imageCount: 1,
+  });
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
+  const [uploadedImages, setUploadedImages] = useState<string[]>([]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -179,37 +186,99 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
 
-    if (file.size > 20 * 1024 * 1024) {
-      toast({ title: "File too large", description: "Maximum file size is 20MB.", variant: "destructive" });
-      return;
+    // Check if we're in analyze or edit mode (multi-image support)
+    const isMultiImageMode = imageMode === 'analyze' || imageMode === 'edit';
+    const imageFiles: File[] = [];
+    let nonImageFile: File | null = null;
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      if (file.size > 20 * 1024 * 1024) {
+        toast({ title: "File too large", description: `${file.name} exceeds 20MB limit.`, variant: "destructive" });
+        continue;
+      }
+      
+      if (file.type.startsWith('image/')) {
+        imageFiles.push(file);
+      } else if (!nonImageFile) {
+        nonImageFile = file;
+      }
     }
-    
-    // Check if it's an image file
-    if (file.type.startsWith('image/')) {
-      const base64 = await fileToBase64(file);
-      setUploadedImage(base64);
+
+    // Handle multiple image uploads for analyze/edit modes
+    if (imageFiles.length > 0) {
+      const maxImages = isMultiImageMode ? MAX_MULTI_IMAGES : 1;
+      const selectedImages = imageFiles.slice(0, maxImages);
+      
+      const base64Promises = selectedImages.map(file => fileToBase64(file));
+      const base64Images = await Promise.all(base64Promises);
+      
+      if (isMultiImageMode && uploadedImages.length > 0) {
+        // Add to existing images (up to max)
+        const combined = [...uploadedImages, ...base64Images].slice(0, MAX_MULTI_IMAGES);
+        setUploadedImages(combined);
+        setUploadedImage(combined[0]);
+      } else {
+        setUploadedImages(base64Images);
+        setUploadedImage(base64Images[0]);
+      }
       
       // Only set to 'analyze' if no image mode was already selected
-      // If user pre-selected a mode (generate/analyze/edit), keep that mode
       if (imageMode === 'off') {
         setImageMode('analyze');
       }
       
-      // Create preview
+      // Create preview for first image
       const reader = new FileReader();
       reader.onload = (e) => setFilePreview(e.target?.result as string);
-      reader.readAsDataURL(file);
+      reader.readAsDataURL(selectedImages[0]);
       
       const modeLabel = imageMode === 'off' ? 'Analyze' : imageMode.charAt(0).toUpperCase() + imageMode.slice(1);
+      const countText = base64Images.length > 1 ? ` (${base64Images.length} images)` : '';
       toast({ 
-        title: "Image uploaded", 
-        description: `${modeLabel} mode active. Send to proceed.` 
+        title: "Image(s) uploaded", 
+        description: `${modeLabel} mode active${countText}. Send to proceed.` 
       });
+      
+      // Reset file input to allow re-uploading same files
+      if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
+    
+    // Handle non-image file
+    if (nonImageFile) {
+      setUploadedFile(nonImageFile);
+      setFileAnalysis(null);
+      setOcrResult(null);
+      setFilePreview(null);
+      
+      // Auto-analyze the file immediately
+      try {
+        let extractedText = '';
+        if (nonImageFile.type === 'text/plain' || nonImageFile.name.endsWith('.txt')) {
+          extractedText = await nonImageFile.text();
+        }
+        
+        const analysis = await analyzeFileContent(nonImageFile, extractedText);
+        setFileAnalysis(analysis);
+        
+        // For PDFs, trigger advanced OCR automatically
+        if (nonImageFile.type === 'application/pdf') {
+          await runAdvancedOcr(nonImageFile);
+        }
+        
+        toast({ 
+          title: "File Analyzed", 
+          description: `${nonImageFile.name} - ${analysis.language_detected.join('/')} detected. ${analysis.entities?.length || 0} entities found.` 
+        });
+      } catch (err) {
+        toast({ title: "File attached", description: `${nonImageFile.name} ready for analysis.` });
+      }
+    }
+  };
     
     // For non-image files, proceed with normal document handling
     setUploadedFile(file);
@@ -448,16 +517,26 @@ ${ocrResult.summary}
     const nowIso = new Date().toISOString();
     const userPrompt = input.trim();
 
+    const effectiveRatio = imageCustomization.aspectRatio === 'custom' 
+      ? imageCustomization.customRatio || '1:1' 
+      : imageCustomization.aspectRatio === 'auto' ? '1:1' : imageCustomization.aspectRatio;
+    
     const config = {
-      aspectRatio: imageAspectRatio,
+      aspectRatio: effectiveRatio,
       imageSize: '2K' as const,
+      style: imageCustomization.style,
+      imageCount: imageCustomization.imageCount,
     };
 
+    const styleLabel = imageCustomization.style !== 'normal' ? ` [${imageCustomization.style}]` : '';
+    const countLabel = imageCustomization.imageCount > 1 ? ` x${imageCustomization.imageCount}` : '';
+    const imagesCount = uploadedImages.length > 1 ? ` (${uploadedImages.length} images)` : '';
+    
     const userContent = imageMode === 'generate'
-      ? `🎨 Generate image (${imageAspectRatio}): ${userPrompt}`
+      ? `🎨 Generate image (${effectiveRatio}${styleLabel}${countLabel}): ${userPrompt}`
       : imageMode === 'edit'
-        ? `✏️ Edit image (${imageAspectRatio}): ${userPrompt}`
-        : `🔍 Analyze image${userPrompt ? `: ${userPrompt}` : ''}`;
+        ? `✏️ Edit image${imagesCount} (${effectiveRatio}${styleLabel}): ${userPrompt}`
+        : `🔍 Analyze image${imagesCount}${userPrompt ? `: ${userPrompt}` : ''}`;
 
     // Always show the user prompt + an in-chat processing message
     // For analyze/edit, also include the uploaded image in user message for immediate display
@@ -477,7 +556,7 @@ ${ocrResult.summary}
         created_at: nowIso,
         pending: true,
         pendingMode: imageMode as 'generate' | 'analyze' | 'edit',
-        pendingAspectRatio: imageAspectRatio,
+        pendingAspectRatio: effectiveRatio,
         pendingOriginalImage: (imageMode === 'edit') && uploadedImage ? uploadedImage : undefined,
       },
     ]);
@@ -534,7 +613,7 @@ ${ocrResult.summary}
           )));
           
           // Save image to storage in background (non-blocking)
-          saveGeneratedImage(result.imageUrl, userPrompt, imageAspectRatio).then(storedUrl => {
+          saveGeneratedImage(result.imageUrl, userPrompt, effectiveRatio).then(storedUrl => {
             if (storedUrl) {
               savedImageUrl = storedUrl;
               assistantContent = `${result.description || 'Image generated successfully'}\n\n![Generated Image](${storedUrl})`;
@@ -643,7 +722,7 @@ ${ocrResult.summary}
           )));
           
           // Save edited image to storage in background (non-blocking)
-          saveGeneratedImage(result.imageUrl, userPrompt, imageAspectRatio).then(storedUrl => {
+          saveGeneratedImage(result.imageUrl, userPrompt, effectiveRatio).then(storedUrl => {
             if (storedUrl) {
               savedImageUrl = storedUrl;
               assistantContent = `${result.description || 'Image edited successfully'}\n\n![Edited Image](${storedUrl})`;
@@ -963,22 +1042,31 @@ ${scrapedContent.content?.substring(0, 15000) || 'No content extracted'}
 
       <div className="p-4 border-t border-border glass-panel">
         {/* Uploaded image preview for Image AI analyze/edit modes */}
-        {uploadedImage && (imageMode === 'analyze' || imageMode === 'edit') && (
-          <div className="mb-3 p-2 bg-muted/50 rounded-lg flex items-center gap-2">
-            <img 
-              src={uploadedImage} 
-              alt="Uploaded" 
-              className="h-12 w-12 object-cover rounded"
-            />
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium truncate">Image ready for {imageMode === 'analyze' ? 'analysis' : 'editing'}</p>
-              <p className="text-xs text-muted-foreground">
-                {imageMode === 'edit' && `Ratio: ${imageAspectRatio}`}
-              </p>
+        {(uploadedImage || uploadedImages.length > 0) && (imageMode === 'analyze' || imageMode === 'edit') && (
+          <div className="mb-3 p-2 bg-muted/50 rounded-lg">
+            <div className="flex items-center gap-2">
+              <div className="flex -space-x-2">
+                {uploadedImages.slice(0, 4).map((img, i) => (
+                  <img key={i} src={img} alt={`Uploaded ${i+1}`} className="h-10 w-10 object-cover rounded border-2 border-background" />
+                ))}
+                {uploadedImages.length > 4 && (
+                  <div className="h-10 w-10 rounded bg-muted flex items-center justify-center text-xs font-medium border-2 border-background">
+                    +{uploadedImages.length - 4}
+                  </div>
+                )}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium truncate">
+                  {uploadedImages.length > 1 ? `${uploadedImages.length} images` : 'Image'} ready for {imageMode === 'analyze' ? 'analysis' : 'editing'}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {imageMode === 'edit' && `Style: ${imageCustomization.style} · Ratio: ${imageCustomization.aspectRatio}`}
+                </p>
+              </div>
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setUploadedImage(null); setUploadedImages([]); }}>
+                <X className="h-4 w-4" />
+              </Button>
             </div>
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setUploadedImage(null)}>
-              <X className="h-4 w-4" />
-            </Button>
           </div>
         )}
 
@@ -1173,22 +1261,13 @@ ${scrapedContent.content?.substring(0, 15000) || 'No content extracted'}
             </DropdownMenuContent>
           </DropdownMenu>
 
-          {/* Aspect ratio selector - shows when generate or edit mode is active */}
+          {/* New Customization Panel - replaces old aspect ratio selector */}
           {(imageMode === 'generate' || imageMode === 'edit') && (
-            <Select value={imageAspectRatio} onValueChange={(v) => setImageAspectRatio(v as any)}>
-              <SelectTrigger className="h-8 w-[100px] text-xs">
-                <SelectValue placeholder="1:1" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="1:1">1:1</SelectItem>
-                <SelectItem value="16:9">16:9</SelectItem>
-                <SelectItem value="9:16">9:16</SelectItem>
-                <SelectItem value="3:2">3:2</SelectItem>
-                <SelectItem value="2:3">2:3</SelectItem>
-                <SelectItem value="4:3">4:3</SelectItem>
-                <SelectItem value="3:4">3:4</SelectItem>
-              </SelectContent>
-            </Select>
+            <ImageCustomizationPanel
+              value={imageCustomization}
+              onChange={setImageCustomization}
+              disabled={isLoading || isImageProcessing}
+            />
           )}
         </div>
 
