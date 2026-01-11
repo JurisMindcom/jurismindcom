@@ -89,7 +89,7 @@ const Admin = () => {
     totalMessages: 0,
   });
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeApiKey, setActiveApiKey] = useState<'primary' | 'secondary'>('primary');
+  const [activeApiKey, setActiveApiKey] = useState<'primary' | 'secondary' | 'tertiary'>('primary');
   const [loadingLegacyKey, setLoadingLegacyKey] = useState(false);
   
   // AI Models State
@@ -238,14 +238,14 @@ const Admin = () => {
         .single();
 
       if (data && !error) {
-        setActiveApiKey(data.setting_value as 'primary' | 'secondary');
+        setActiveApiKey(data.setting_value as 'primary' | 'secondary' | 'tertiary');
       }
     } catch (error) {
       console.error('Error fetching active legacy key:', error);
     }
   };
 
-  const updateActiveLegacyKey = async (key: 'primary' | 'secondary') => {
+  const updateActiveLegacyKey = async (key: 'primary' | 'secondary' | 'tertiary') => {
     setLoadingLegacyKey(true);
     try {
       const { error } = await supabase
@@ -256,9 +256,14 @@ const Admin = () => {
       if (error) throw error;
 
       setActiveApiKey(key);
+      const keyNames = {
+        primary: 'Key 1 (Primary)',
+        secondary: 'Key 2 (Secondary)',
+        tertiary: 'Key 3 (Tertiary)'
+      };
       toast({ 
         title: "Legacy Key Activated", 
-        description: `${key === 'primary' ? 'Key 1 (Primary)' : 'Key 2 (Secondary)'} is now the active fallback key for all AI requests.` 
+        description: `${keyNames[key]} is now the active fallback key for all AI requests.` 
       });
     } catch (error: any) {
       console.error('Error updating active legacy key:', error);
@@ -798,7 +803,7 @@ const Admin = () => {
                       <Zap className="w-4 h-4 text-amber-500 animate-pulse" />
                       <span className="text-sm font-medium">Currently Active Fallback:</span>
                       <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/30">
-                        {activeApiKey === 'primary' ? 'Key 1 - Primary' : 'Key 2 - Secondary'}
+                        {activeApiKey === 'primary' ? 'Key 1 - Primary' : activeApiKey === 'secondary' ? 'Key 2 - Secondary' : 'Key 3 - Tertiary'}
                       </Badge>
                     </div>
                   </div>
@@ -808,7 +813,7 @@ const Admin = () => {
                     Your selection persists globally across all sessions.
                   </p>
                   
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <button
                       onClick={() => updateActiveLegacyKey('primary')}
                       disabled={loadingLegacyKey}
@@ -867,6 +872,38 @@ const Admin = () => {
                       </div>
                       <p className="text-xs text-muted-foreground">Secondary Gemini API Key</p>
                       {activeApiKey === 'secondary' && (
+                        <div className="absolute top-2 right-2">
+                          <CheckCircle2 className="w-4 h-4 text-green-500" />
+                        </div>
+                      )}
+                    </button>
+
+                    <button
+                      onClick={() => updateActiveLegacyKey('tertiary')}
+                      disabled={loadingLegacyKey}
+                      className={`relative p-4 rounded-lg border text-left transition-all ${
+                        activeApiKey === 'tertiary' 
+                          ? 'border-amber-500/50 bg-amber-500/10 ring-2 ring-amber-500/30' 
+                          : 'border-border bg-secondary/30 hover:border-amber-500/30 hover:bg-secondary/50'
+                      } ${loadingLegacyKey ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <div className={`p-2 rounded-full ${activeApiKey === 'tertiary' ? 'bg-amber-500/20' : 'bg-muted'}`}>
+                            {loadingLegacyKey ? (
+                              <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                            ) : (
+                              <Zap className={`w-4 h-4 ${activeApiKey === 'tertiary' ? 'text-amber-500 animate-pulse' : 'text-muted-foreground'}`} />
+                            )}
+                          </div>
+                          <span className="font-medium">Key 3</span>
+                        </div>
+                        <Badge className={activeApiKey === 'tertiary' ? 'bg-green-500/20 text-green-400 border-green-500/30' : 'bg-muted text-muted-foreground'}>
+                          {activeApiKey === 'tertiary' ? 'Active' : 'Standby'}
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground">Tertiary Gemini API Key</p>
+                      {activeApiKey === 'tertiary' && (
                         <div className="absolute top-2 right-2">
                           <CheckCircle2 className="w-4 h-4 text-green-500" />
                         </div>
