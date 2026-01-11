@@ -132,6 +132,7 @@ const keyStates: Map<string, APIKeyState> = new Map();
 function initializeKeyStates(): void {
   const primaryKey = Deno.env.get('GOOGLE_API_KEY');
   const secondaryKey = Deno.env.get('GOOGLE_API_KEY_SECONDARY');
+  const tertiaryKey = Deno.env.get('GOOGLE_API_KEY_TERTIARY');
   
   if (primaryKey && !keyStates.has('primary')) {
     keyStates.set('primary', {
@@ -148,6 +149,17 @@ function initializeKeyStates(): void {
     keyStates.set('secondary', {
       key: secondaryKey,
       name: 'Secondary Gemini API',
+      isActive: true,
+      lastFailure: null,
+      cooldownUntil: null,
+      failureCount: 0,
+    });
+  }
+  
+  if (tertiaryKey && !keyStates.has('tertiary')) {
+    keyStates.set('tertiary', {
+      key: tertiaryKey,
+      name: 'Tertiary Gemini API',
       isActive: true,
       lastFailure: null,
       cooldownUntil: null,
@@ -171,38 +183,38 @@ function isKeyAvailable(state: APIKeyState): boolean {
   return state.isActive && (!state.cooldownUntil || now >= state.cooldownUntil);
 }
 
-function getActiveKey(excludeKeys: Set<string> = new Set(), preferredKey: 'primary' | 'secondary' = 'primary'): { keyId: string; state: APIKeyState } | null {
+function getActiveKey(excludeKeys: Set<string> = new Set(), preferredKey: 'primary' | 'secondary' | 'tertiary' = 'primary'): { keyId: string; state: APIKeyState } | null {
   initializeKeyStates();
   
-  // Try the admin-preferred key first (if not excluded)
-  if (!excludeKeys.has(preferredKey)) {
-    const preferredState = keyStates.get(preferredKey);
-    if (preferredState && isKeyAvailable(preferredState)) {
-      console.log(`[API Key Manager] Using admin-selected ${preferredKey} key`);
-      return { keyId: preferredKey, state: preferredState };
+  // Define the fallback order based on preferred key
+  const keyOrder: Array<'primary' | 'secondary' | 'tertiary'> = 
+    preferredKey === 'primary' ? ['primary', 'secondary', 'tertiary'] :
+    preferredKey === 'secondary' ? ['secondary', 'primary', 'tertiary'] :
+    ['tertiary', 'primary', 'secondary'];
+  
+  // Try keys in order of preference
+  for (const keyId of keyOrder) {
+    if (!excludeKeys.has(keyId)) {
+      const keyState = keyStates.get(keyId);
+      if (keyState && isKeyAvailable(keyState)) {
+        console.log(`[API Key Manager] Using ${keyId} key`);
+        return { keyId, state: keyState };
+      }
     }
   }
   
-  // Fall back to the other key
-  const fallbackKey = preferredKey === 'primary' ? 'secondary' : 'primary';
-  if (!excludeKeys.has(fallbackKey)) {
-    const fallbackState = keyStates.get(fallbackKey);
-    if (fallbackState && isKeyAvailable(fallbackState)) {
-      console.log(`[API Key Manager] Preferred key ${preferredKey} unavailable, falling back to ${fallbackKey}`);
-      return { keyId: fallbackKey, state: fallbackState };
-    }
-  }
-  
-  // Check if preferred key can be recovered from cooldown
-  const preferredState = keyStates.get(preferredKey);
-  if (preferredState && preferredState.cooldownUntil && !excludeKeys.has(preferredKey)) {
-    const remainingCooldown = preferredState.cooldownUntil - Date.now();
-    if (remainingCooldown <= 0) {
-      preferredState.isActive = true;
-      preferredState.cooldownUntil = null;
-      preferredState.failureCount = 0;
-      console.log(`[API Key Manager] ${preferredKey} key recovered from cooldown`);
-      return { keyId: preferredKey, state: preferredState };
+  // Check if any key can be recovered from cooldown
+  for (const keyId of keyOrder) {
+    const keyState = keyStates.get(keyId);
+    if (keyState && keyState.cooldownUntil && !excludeKeys.has(keyId)) {
+      const remainingCooldown = keyState.cooldownUntil - Date.now();
+      if (remainingCooldown <= 0) {
+        keyState.isActive = true;
+        keyState.cooldownUntil = null;
+        keyState.failureCount = 0;
+        console.log(`[API Key Manager] ${keyId} key recovered from cooldown`);
+        return { keyId, state: keyState };
+      }
     }
   }
   
@@ -349,7 +361,7 @@ async function getActiveModelFromDB(): Promise<{ model_name: string; provider: s
 }
 
 // Fetch admin-selected active legacy key from database
-async function getActiveLegacyKeyFromDB(): Promise<'primary' | 'secondary'> {
+async function getActiveLegacyKeyFromDB(): Promise<'primary' | 'secondary' | 'tertiary'> {
   const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
   const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
   
@@ -377,7 +389,7 @@ async function getActiveLegacyKeyFromDB(): Promise<'primary' | 'secondary'> {
 
     const settings = await response.json();
     if (settings && settings.length > 0) {
-      const key = settings[0].setting_value as 'primary' | 'secondary';
+      const key = settings[0].setting_value as 'primary' | 'secondary' | 'tertiary';
       console.log(`[Legacy Key] Admin selected legacy key: ${key}`);
       return key;
     }
