@@ -140,7 +140,7 @@ const ImageCustomizationPanel = ({ value, onChange, disabled }: ImageCustomizati
               duration: 0.3
             }}
             className={cn(
-              "absolute right-0 bottom-full mb-2 z-50",
+              "absolute left-0 bottom-full mb-2 z-50",
               "w-[300px] sm:w-[320px] max-h-[60vh] overflow-y-auto",
               "rounded-xl border border-border",
               "bg-popover backdrop-blur-xl",
@@ -148,7 +148,7 @@ const ImageCustomizationPanel = ({ value, onChange, disabled }: ImageCustomizati
               "p-4 space-y-4"
             )}
             style={{
-              transformOrigin: 'bottom right'
+              transformOrigin: 'bottom left'
             }}
           >
             {/* Panel Header */}
