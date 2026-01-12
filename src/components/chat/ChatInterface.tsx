@@ -279,36 +279,6 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
       }
     }
   };
-    
-    // For non-image files, proceed with normal document handling
-    setUploadedFile(file);
-    setFileAnalysis(null);
-    setOcrResult(null);
-    setFilePreview(null);
-    
-    // Auto-analyze the file immediately
-    try {
-      let extractedText = '';
-      if (file.type === 'text/plain' || file.name.endsWith('.txt')) {
-        extractedText = await file.text();
-      }
-      
-      const analysis = await analyzeFileContent(file, extractedText);
-      setFileAnalysis(analysis);
-      
-      // For PDFs, trigger advanced OCR automatically
-      if (file.type === 'application/pdf') {
-        await runAdvancedOcr(file);
-      }
-      
-      toast({ 
-        title: "File Analyzed", 
-        description: `${file.name} - ${analysis.language_detected.join('/')} detected. ${analysis.entities?.length || 0} entities found.` 
-      });
-    } catch (err) {
-      toast({ title: "File attached", description: `${file.name} ready for analysis.` });
-    }
-  };
 
   // Advanced OCR using Gemini Vision
   const runAdvancedOcr = async (file: File) => {
