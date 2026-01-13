@@ -13,9 +13,36 @@ interface ImageRequest {
   imageBase64?: string;
   editInstructions?: string;
   imageConfig?: {
-    aspectRatio?: string; // e.g. 1:1, 16:9
+    aspectRatio?: string;
     imageSize?: '1K' | '2K' | '4K';
   };
+}
+
+// Generate unique telemetry ID for debugging
+function generateTelemetryId(): string {
+  return `img_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+}
+
+// Validate and compress base64 image if too large (max 4MB payload)
+function validateAndPrepareImage(imageBase64: string | undefined): { valid: boolean; data?: string; error?: string } {
+  if (!imageBase64) {
+    return { valid: false, error: 'No image provided' };
+  }
+
+  // Check if it's a valid base64 data URL or raw base64
+  if (!imageBase64.startsWith('data:image/') && !imageBase64.match(/^[A-Za-z0-9+/=]+$/)) {
+    return { valid: false, error: 'Invalid image format' };
+  }
+
+  // Estimate size (base64 is ~4/3 of original)
+  const sizeInBytes = (imageBase64.length * 3) / 4;
+  const maxSize = 10 * 1024 * 1024; // 10MB max
+
+  if (sizeInBytes > maxSize) {
+    return { valid: false, error: 'Image too large. Please use an image under 10MB.' };
+  }
+
+  return { valid: true, data: imageBase64 };
 }
 
 // Decrypt API key (simple XOR) - matches the encryption in AddImageModel.tsx
@@ -30,20 +57,26 @@ function decryptApiKey(encrypted: string): string {
     return decrypted;
   } catch (err) {
     console.error('Decryption error:', err);
-    // If decryption fails, the key might be stored plainly
     return encrypted;
   }
 }
 
-// Get active image model from database
+// Get active image model from database with timeout
 async function getActiveImageModel(supabaseUrl: string, supabaseKey: string) {
   try {
     const supabase = createClient(supabaseUrl, supabaseKey);
-    const { data, error } = await supabase
+    
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Database timeout')), 5000)
+    );
+    
+    const queryPromise = supabase
       .from('image_ai_models')
       .select('*')
       .eq('is_active', true)
       .single();
+
+    const { data, error } = await Promise.race([queryPromise, timeoutPromise]) as any;
 
     if (error || !data) {
       console.log('No active image model found in DB, will use Lovable AI Gateway');
@@ -66,18 +99,34 @@ async function getActiveImageModel(supabaseUrl: string, supabaseKey: string) {
   }
 }
 
+// Fetch with timeout helper
+async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: number = 60000): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+    return response;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 // Generate image with Lovable AI Gateway (no API key needed)
 async function generateWithLovableGateway(prompt: string, aspectRatio?: string) {
   console.log('Generating image with Lovable AI Gateway (google/gemini-2.5-flash-image-preview)...');
 
   const lovableApiKey = Deno.env.get('LOVABLE_API_KEY');
   if (!lovableApiKey) {
-    throw new Error('LOVABLE_API_KEY is not configured on the backend');
+    throw new Error('LOVABLE_API_KEY is not configured. Please contact support.');
   }
 
   const ratioHint = aspectRatio ? `\nAspect ratio: ${aspectRatio}.` : '';
 
-  const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+  const response = await fetchWithTimeout('https://ai.gateway.lovable.dev/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -93,12 +142,12 @@ async function generateWithLovableGateway(prompt: string, aspectRatio?: string) 
       ],
       modalities: ['image', 'text'],
     }),
-  });
+  }, 90000); // 90 second timeout for image generation
 
   if (!response.ok) {
-    const errorText = await response.text();
-    console.error('Lovable Gateway error:', errorText);
-    throw new Error(`Lovable Gateway API error: ${response.status}`);
+    const errorText = await response.text().catch(() => 'Unknown error');
+    console.error('Lovable Gateway error:', response.status, errorText);
+    throw new Error(`Image generation service temporarily unavailable (${response.status})`);
   }
 
   const data = await response.json();
@@ -111,10 +160,10 @@ async function generateWithLovableGateway(prompt: string, aspectRatio?: string) 
     };
   }
 
-  throw new Error('No image generated from Lovable Gateway');
+  throw new Error('Image generation completed but no image was returned. Please try again.');
 }
 
-// Generate image with OpenRouter API (image generation is done via /chat/completions + modalities)
+// Generate image with OpenRouter API
 async function generateWithOpenRouter(
   apiKey: string,
   modelName: string,
@@ -130,7 +179,6 @@ async function generateWithOpenRouter(
     stream: false,
   };
 
-  // OpenRouter only supports image_config for Gemini image-generation models
   if (modelName.toLowerCase().includes('gemini') && imageConfig?.aspectRatio) {
     body.image_config = {
       aspect_ratio: imageConfig.aspectRatio,
@@ -138,7 +186,7 @@ async function generateWithOpenRouter(
     };
   }
 
-  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+  const response = await fetchWithTimeout('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${apiKey}`,
@@ -147,12 +195,12 @@ async function generateWithOpenRouter(
       'X-Title': 'JurisMind',
     },
     body: JSON.stringify(body),
-  });
+  }, 90000);
 
   if (!response.ok) {
-    const errorText = await response.text();
-    console.error('OpenRouter error:', errorText);
-    throw new Error(`OpenRouter API error: ${response.status} - ${errorText}`);
+    const errorText = await response.text().catch(() => 'Unknown error');
+    console.error('OpenRouter error:', response.status, errorText);
+    throw new Error(`OpenRouter API error: ${response.status}`);
   }
 
   const data = await response.json();
@@ -177,7 +225,7 @@ async function generateWithOpenRouter(
 async function generateWithOpenAI(apiKey: string, prompt: string) {
   console.log('Generating image with OpenAI DALL-E...');
   
-  const response = await fetch('https://api.openai.com/v1/images/generations', {
+  const response = await fetchWithTimeout('https://api.openai.com/v1/images/generations', {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${apiKey}`,
@@ -190,11 +238,11 @@ async function generateWithOpenAI(apiKey: string, prompt: string) {
       size: '1024x1024',
       response_format: 'b64_json',
     }),
-  });
+  }, 90000);
 
   if (!response.ok) {
-    const errorText = await response.text();
-    console.error('OpenAI error:', errorText);
+    const errorText = await response.text().catch(() => 'Unknown error');
+    console.error('OpenAI error:', response.status, errorText);
     throw new Error(`OpenAI API error: ${response.status}`);
   }
 
@@ -232,10 +280,10 @@ async function analyzeWithLovableGateway(imageBase64: string, prompt: string) {
 
   const lovableApiKey = Deno.env.get('LOVABLE_API_KEY');
   if (!lovableApiKey) {
-    throw new Error('LOVABLE_API_KEY is not configured on the backend');
+    throw new Error('LOVABLE_API_KEY is not configured. Please contact support.');
   }
 
-  const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+  const response = await fetchWithTimeout('https://ai.gateway.lovable.dev/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -253,16 +301,18 @@ async function analyzeWithLovableGateway(imageBase64: string, prompt: string) {
         }
       ],
     }),
-  });
+  }, 60000);
 
   if (!response.ok) {
-    throw new Error(`Lovable Gateway Vision API error: ${response.status}`);
+    const errorText = await response.text().catch(() => 'Unknown error');
+    console.error('Lovable Gateway Vision error:', response.status, errorText);
+    throw new Error(`Image analysis service temporarily unavailable (${response.status})`);
   }
 
   const data = await response.json();
   
   return {
-    analysis: data.choices?.[0]?.message?.content || 'Analysis complete',
+    analysis: data.choices?.[0]?.message?.content || 'Image analysis completed successfully.',
   };
 }
 
@@ -270,7 +320,7 @@ async function analyzeWithLovableGateway(imageBase64: string, prompt: string) {
 async function analyzeWithOpenAI(apiKey: string, imageBase64: string, prompt: string) {
   console.log('Analyzing image with OpenAI Vision...');
   
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+  const response = await fetchWithTimeout('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${apiKey}`,
@@ -289,16 +339,18 @@ async function analyzeWithOpenAI(apiKey: string, imageBase64: string, prompt: st
       ],
       max_tokens: 1000,
     }),
-  });
+  }, 60000);
 
   if (!response.ok) {
+    const errorText = await response.text().catch(() => 'Unknown error');
+    console.error('OpenAI Vision error:', response.status, errorText);
     throw new Error(`OpenAI Vision API error: ${response.status}`);
   }
 
   const data = await response.json();
   
   return {
-    analysis: data.choices?.[0]?.message?.content || 'Analysis complete',
+    analysis: data.choices?.[0]?.message?.content || 'Image analysis completed successfully.',
   };
 }
 
@@ -308,10 +360,10 @@ async function editWithLovableGateway(imageBase64: string, editInstructions: str
 
   const lovableApiKey = Deno.env.get('LOVABLE_API_KEY');
   if (!lovableApiKey) {
-    throw new Error('LOVABLE_API_KEY is not configured on the backend');
+    throw new Error('LOVABLE_API_KEY is not configured. Please contact support.');
   }
 
-  const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+  const response = await fetchWithTimeout('https://ai.gateway.lovable.dev/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -330,10 +382,12 @@ async function editWithLovableGateway(imageBase64: string, editInstructions: str
       ],
       modalities: ['image', 'text'],
     }),
-  });
+  }, 90000);
 
   if (!response.ok) {
-    throw new Error(`Lovable Gateway Edit API error: ${response.status}`);
+    const errorText = await response.text().catch(() => 'Unknown error');
+    console.error('Lovable Gateway Edit error:', response.status, errorText);
+    throw new Error(`Image editing service temporarily unavailable (${response.status})`);
   }
 
   const data = await response.json();
@@ -346,15 +400,15 @@ async function editWithLovableGateway(imageBase64: string, editInstructions: str
     };
   }
   
-  throw new Error('No edited image generated');
+  // Fallback: if no image returned, provide helpful message
+  throw new Error('Image editing completed but no modified image was returned. Please try with different instructions.');
 }
 
 // Edit image with OpenAI
 async function editWithOpenAI(apiKey: string, imageBase64: string, editInstructions: string) {
   console.log('Editing image with OpenAI...');
   
-  // OpenAI edit requires specific format - use DALL-E 3 for generation with edit prompt
-  const response = await fetch('https://api.openai.com/v1/images/generations', {
+  const response = await fetchWithTimeout('https://api.openai.com/v1/images/generations', {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${apiKey}`,
@@ -367,9 +421,11 @@ async function editWithOpenAI(apiKey: string, imageBase64: string, editInstructi
       size: '1024x1024',
       response_format: 'b64_json',
     }),
-  });
+  }, 90000);
 
   if (!response.ok) {
+    const errorText = await response.text().catch(() => 'Unknown error');
+    console.error('OpenAI Edit error:', response.status, errorText);
     throw new Error(`OpenAI Edit API error: ${response.status}`);
   }
 
@@ -381,100 +437,222 @@ async function editWithOpenAI(apiKey: string, imageBase64: string, editInstructi
   };
 }
 
+// Create a safe JSON response
+function createResponse(body: Record<string, unknown>, status: number = 200): Response {
+  return new Response(
+    JSON.stringify(body),
+    { 
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }, 
+      status: status 
+    }
+  );
+}
+
 serve(async (req) => {
+  const telemetryId = generateTelemetryId();
+  
+  // CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
-  try {
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    
-    const { action, prompt, imageBase64, editInstructions, imageConfig }: ImageRequest = await req.json();
+  console.log(`[${telemetryId}] Processing image request...`);
 
-    console.log(`Processing image request: ${action}`);
+  try {
+    // Parse request body with error handling
+    let requestBody: ImageRequest;
+    try {
+      requestBody = await req.json();
+    } catch (parseError) {
+      console.error(`[${telemetryId}] JSON parse error:`, parseError);
+      return createResponse({
+        success: false,
+        error: 'Invalid request format. Please try again.',
+        telemetryId,
+      }, 200); // Return 200 with error in body to prevent red banner
+    }
+
+    const { action, prompt, imageBase64, editInstructions, imageConfig } = requestBody;
+
+    console.log(`[${telemetryId}] Action: ${action}`);
+
+    // Validate action
+    if (!action || !['generate', 'analyze', 'edit'].includes(action)) {
+      return createResponse({
+        success: false,
+        error: 'Invalid action. Use: generate, analyze, or edit.',
+        telemetryId,
+      }, 200);
+    }
+
+    // Validate required inputs
+    if (action === 'generate' && !prompt?.trim()) {
+      return createResponse({
+        success: false,
+        error: 'Please provide a description for the image you want to generate.',
+        telemetryId,
+      }, 200);
+    }
+
+    if (action === 'analyze') {
+      const imageValidation = validateAndPrepareImage(imageBase64);
+      if (!imageValidation.valid) {
+        return createResponse({
+          success: false,
+          error: imageValidation.error || 'Please upload an image to analyze.',
+          telemetryId,
+        }, 200);
+      }
+    }
+
+    if (action === 'edit') {
+      const imageValidation = validateAndPrepareImage(imageBase64);
+      if (!imageValidation.valid) {
+        return createResponse({
+          success: false,
+          error: imageValidation.error || 'Please upload an image to edit.',
+          telemetryId,
+        }, 200);
+      }
+      if (!editInstructions?.trim()) {
+        return createResponse({
+          success: false,
+          error: 'Please provide instructions for how you want to edit the image.',
+          telemetryId,
+        }, 200);
+      }
+    }
+
+    // Get environment variables
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    
+    if (!supabaseUrl || !supabaseKey) {
+      console.error(`[${telemetryId}] Missing Supabase configuration`);
+      return createResponse({
+        success: false,
+        error: 'Service configuration error. Please try again later.',
+        telemetryId,
+      }, 200);
+    }
 
     // Get active image model from database
     const activeModel = await getActiveImageModel(supabaseUrl, supabaseKey);
     
     let result;
-    let providerName = 'Lovable AI Gateway';
+    let providerName = 'Lovable AI';
 
     // Determine how to handle the request based on active model
     const hasCustomModel = activeModel && activeModel.apiKey && activeModel.apiKey.length > 10;
     
     if (hasCustomModel) {
-      console.log(`Using custom model: ${activeModel.modelName} (${activeModel.provider})`);
+      console.log(`[${telemetryId}] Using custom model: ${activeModel.modelName} (${activeModel.provider})`);
       providerName = activeModel.modelName;
     } else {
-      console.log('No custom model configured, using Lovable AI Gateway');
+      console.log(`[${telemetryId}] No custom model configured, using Lovable AI Gateway`);
     }
 
-    switch (action) {
-      case 'generate':
-        if (!prompt) {
-          throw new Error('Prompt is required for image generation');
-        }
-        
-        if (hasCustomModel) {
-          const provider = activeModel.provider.toLowerCase();
-
-          if (provider === 'openai' || activeModel.modelName.toLowerCase().includes('dall')) {
-            result = await generateWithOpenAI(activeModel.apiKey, prompt);
+    try {
+      switch (action) {
+        case 'generate':
+          if (hasCustomModel) {
+            const provider = activeModel.provider.toLowerCase();
+            if (provider === 'openai' || activeModel.modelName.toLowerCase().includes('dall')) {
+              result = await generateWithOpenAI(activeModel.apiKey, prompt!);
+            } else {
+              result = await generateWithCustomAPI(activeModel.apiKey, activeModel.modelName, prompt!, imageConfig);
+            }
           } else {
-            // Use OpenRouter /chat/completions for other models (Seedream, Gemini image models, etc.)
-            result = await generateWithCustomAPI(activeModel.apiKey, activeModel.modelName, prompt, imageConfig);
+            result = await generateWithLovableGateway(prompt!, imageConfig?.aspectRatio);
           }
-        } else {
-          result = await generateWithLovableGateway(prompt, imageConfig?.aspectRatio);
-        }
-        break;
+          break;
 
-      case 'analyze':
-        if (!imageBase64) {
-          throw new Error('Image is required for analysis');
+        case 'analyze':
+          if (hasCustomModel && activeModel.provider.toLowerCase() === 'openai') {
+            result = await analyzeWithOpenAI(activeModel.apiKey, imageBase64!, prompt || '');
+          } else {
+            result = await analyzeWithLovableGateway(imageBase64!, prompt || '');
+          }
+          break;
+
+        case 'edit':
+          if (hasCustomModel && activeModel.provider.toLowerCase() === 'openai') {
+            result = await editWithOpenAI(activeModel.apiKey, imageBase64!, editInstructions!);
+          } else {
+            result = await editWithLovableGateway(imageBase64!, editInstructions!);
+          }
+          break;
+      }
+    } catch (aiError: any) {
+      console.error(`[${telemetryId}] AI processing error:`, aiError);
+      
+      // Try fallback to Lovable Gateway if custom model fails
+      if (hasCustomModel) {
+        console.log(`[${telemetryId}] Custom model failed, attempting fallback to Lovable AI Gateway...`);
+        try {
+          switch (action) {
+            case 'generate':
+              result = await generateWithLovableGateway(prompt!, imageConfig?.aspectRatio);
+              providerName = 'Lovable AI (fallback)';
+              break;
+            case 'analyze':
+              result = await analyzeWithLovableGateway(imageBase64!, prompt || '');
+              providerName = 'Lovable AI (fallback)';
+              break;
+            case 'edit':
+              result = await editWithLovableGateway(imageBase64!, editInstructions!);
+              providerName = 'Lovable AI (fallback)';
+              break;
+          }
+        } catch (fallbackError: any) {
+          console.error(`[${telemetryId}] Fallback also failed:`, fallbackError);
+          return createResponse({
+            success: false,
+            error: `Image ${action} temporarily unavailable. Please try again in a moment.`,
+            telemetryId,
+          }, 200);
         }
+      } else {
+        // No fallback available
+        const userFriendlyMessage = aiError.message?.includes('timeout') || aiError.message?.includes('abort')
+          ? `Image ${action} is taking longer than expected. Please try again.`
+          : `Image ${action} temporarily unavailable. Please try again in a moment.`;
         
-        if (hasCustomModel && activeModel.provider.toLowerCase() === 'openai') {
-          result = await analyzeWithOpenAI(activeModel.apiKey, imageBase64, prompt);
-        } else {
-          result = await analyzeWithLovableGateway(imageBase64, prompt);
-        }
-        break;
-
-      case 'edit':
-        if (!imageBase64 || !editInstructions) {
-          throw new Error('Image and edit instructions are required');
-        }
-        
-        if (hasCustomModel && activeModel.provider.toLowerCase() === 'openai') {
-          result = await editWithOpenAI(activeModel.apiKey, imageBase64, editInstructions);
-        } else {
-          result = await editWithLovableGateway(imageBase64, editInstructions);
-        }
-        break;
-
-      default:
-        throw new Error('Invalid action. Use: generate, analyze, or edit');
+        return createResponse({
+          success: false,
+          error: userFriendlyMessage,
+          telemetryId,
+        }, 200);
+      }
     }
 
-    return new Response(
-      JSON.stringify({
-        success: true,
-        action,
-        provider: providerName,
-        ...result,
-      }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
-  } catch (error: any) {
-    console.error('Image processing error:', error);
-    return new Response(
-      JSON.stringify({
+    // Validate result
+    if (!result) {
+      return createResponse({
         success: false,
-        error: error.message || 'Image processing failed',
-      }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
-    );
+        error: `Image ${action} completed but no result was returned. Please try again.`,
+        telemetryId,
+      }, 200);
+    }
+
+    console.log(`[${telemetryId}] Success! Provider: ${providerName}`);
+
+    return createResponse({
+      success: true,
+      action,
+      provider: providerName,
+      telemetryId,
+      ...result,
+    }, 200);
+
+  } catch (error: any) {
+    console.error(`[${telemetryId}] Unexpected error:`, error);
+    
+    // ALWAYS return 200 with error in body to prevent red banner
+    return createResponse({
+      success: false,
+      error: 'Something went wrong. Please try again.',
+      telemetryId,
+    }, 200);
   }
 });

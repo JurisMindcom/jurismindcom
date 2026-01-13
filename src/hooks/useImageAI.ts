@@ -10,10 +10,11 @@ interface ImageResult {
   description?: string;
   analysis?: string;
   error?: string;
+  telemetryId?: string;
 }
 
 type ImageConfig = {
-  aspectRatio?: string; // e.g. 1:1, 16:9
+  aspectRatio?: string;
   imageSize?: '1K' | '2K' | '4K';
 };
 
@@ -33,7 +34,13 @@ export const useImageAI = () => {
     setCurrentAction(action);
 
     try {
-      const { data, error } = await supabase.functions.invoke('process-image', {
+      // Set a client-side timeout to prevent hanging
+      const timeoutMs = 120000; // 2 minutes
+      const timeoutPromise = new Promise<never>((_, reject) => 
+        setTimeout(() => reject(new Error('Request timeout - please try again')), timeoutMs)
+      );
+
+      const invokePromise = supabase.functions.invoke('process-image', {
         body: {
           action,
           prompt,
@@ -43,41 +50,89 @@ export const useImageAI = () => {
         },
       });
 
+      const { data, error } = await Promise.race([invokePromise, timeoutPromise.then(() => { throw new Error('timeout'); })]);
+
+      // Handle network/invoke errors gracefully
       if (error) {
-        throw new Error(error.message || 'Image processing failed');
+        console.error('Image AI invoke error:', error);
+        
+        // Don't show destructive toast for network issues - return graceful failure
+        const userMessage = error.message?.includes('non-2xx') 
+          ? 'Image service is busy. Please try again.'
+          : error.message?.includes('timeout')
+            ? 'Request took too long. Please try again with a simpler prompt.'
+            : 'Unable to process image. Please try again.';
+        
+        toast({
+          title: 'Processing Issue',
+          description: userMessage,
+        });
+        
+        return {
+          success: false,
+          action,
+          error: userMessage,
+        };
       }
 
       const result = data as ImageResult;
 
-      if (result?.success) {
+      // Handle API-level errors (returned with success: false)
+      if (!result?.success) {
+        const errorMessage = result?.error || 'Image processing did not complete. Please try again.';
+        console.log('Image AI returned error:', errorMessage, 'Telemetry:', result?.telemetryId);
+        
         toast({
-          title:
-            action === 'generate'
-              ? 'Image Generated'
-              : action === 'analyze'
-                ? 'Image Analyzed'
-                : 'Image Edited',
-          description: `Using ${result.provider || 'AI'} model`,
+          title: 'Processing Notice',
+          description: errorMessage,
         });
-        return result;
+        
+        return {
+          success: false,
+          action,
+          error: errorMessage,
+          telemetryId: result?.telemetryId,
+        };
       }
 
-      throw new Error(result?.error || 'Image processing failed');
-    } catch (error: any) {
-      console.error('Image AI error:', error);
+      // Success case
       toast({
-        title: 'Image Processing Error',
-        description: error.message || 'Failed to process image',
-        variant: 'destructive',
+        title:
+          action === 'generate'
+            ? 'Image Generated'
+            : action === 'analyze'
+              ? 'Image Analyzed'
+              : 'Image Edited',
+        description: `Using ${result.provider || 'AI'} model`,
       });
-      return null;
+      
+      return result;
+      
+    } catch (error: any) {
+      console.error('Image AI unexpected error:', error);
+      
+      const userMessage = error.message?.includes('timeout')
+        ? 'Request took too long. Please try again.'
+        : 'Something went wrong. Please try again.';
+      
+      toast({
+        title: 'Processing Notice',
+        description: userMessage,
+      });
+      
+      return {
+        success: false,
+        action,
+        error: userMessage,
+      };
     } finally {
       setIsProcessing(false);
       setCurrentAction(null);
     }
   };
 
-  const generateImage = async (prompt: string, config?: ImageConfig) => processImage('generate', prompt, undefined, undefined, config);
+  const generateImage = async (prompt: string, config?: ImageConfig) => 
+    processImage('generate', prompt, undefined, undefined, config);
 
   const analyzeImage = async (imageBase64: string, prompt?: string) =>
     processImage('analyze', prompt || 'Analyze this image in detail', imageBase64);
