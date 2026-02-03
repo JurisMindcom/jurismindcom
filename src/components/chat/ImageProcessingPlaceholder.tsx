@@ -1,5 +1,7 @@
 import { motion } from 'framer-motion';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Sparkles, Wand2, ScanEye } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Progress } from '@/components/ui/progress';
 
 interface ImageProcessingPlaceholderProps {
   mode: 'generate' | 'analyze' | 'edit';
@@ -19,18 +21,69 @@ const aspectRatioClasses: Record<string, string> = {
 
 const ImageProcessingPlaceholder = ({ mode, aspectRatio = '1:1', originalImage }: ImageProcessingPlaceholderProps) => {
   const aspectClass = aspectRatioClasses[aspectRatio] || 'aspect-square';
+  const [progress, setProgress] = useState(0);
+  const [stage, setStage] = useState(0);
 
-  const statusText = {
-    generate: 'Creating image…',
-    analyze: 'Analyzing photo…',
-    edit: 'Editing image…',
+  const stages = {
+    generate: ['Initializing AI...', 'Generating image...', 'Refining details...', 'Finalizing...'],
+    analyze: ['Scanning image...', 'Detecting elements...', 'Processing details...', 'Completing analysis...'],
+    edit: ['Loading image...', 'Applying changes...', 'Enhancing result...', 'Finalizing edit...'],
   };
+
+  const icons = {
+    generate: Sparkles,
+    analyze: ScanEye,
+    edit: Wand2,
+  };
+
+  const IconComponent = icons[mode];
+
+  useEffect(() => {
+    // Simulate progress with realistic timing
+    const progressInterval = setInterval(() => {
+      setProgress(prev => {
+        // Slow down as we approach 90% (we never hit 100% until actually done)
+        if (prev < 30) return prev + 2;
+        if (prev < 60) return prev + 1.5;
+        if (prev < 85) return prev + 0.8;
+        if (prev < 95) return prev + 0.3;
+        return prev;
+      });
+    }, 200);
+
+    // Update stage text
+    const stageInterval = setInterval(() => {
+      setStage(prev => (prev + 1) % stages[mode].length);
+    }, 3000);
+
+    return () => {
+      clearInterval(progressInterval);
+      clearInterval(stageInterval);
+    };
+  }, [mode]);
 
   return (
     <div className="w-full max-w-[400px]">
-      <p className="text-sm text-foreground mb-2 font-medium">
-        {statusText[mode]}
-      </p>
+      {/* Status header with icon */}
+      <div className="flex items-center gap-2 mb-3">
+        <motion.div
+          animate={{ rotate: 360 }}
+          transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
+        >
+          <IconComponent className="h-4 w-4 text-primary" />
+        </motion.div>
+        <p className="text-sm text-foreground font-medium">
+          {stages[mode][stage]}
+        </p>
+      </div>
+
+      {/* Progress bar */}
+      <div className="mb-3">
+        <Progress value={progress} className="h-1.5" />
+        <p className="text-xs text-muted-foreground mt-1 text-right">
+          {Math.round(progress)}%
+        </p>
+      </div>
       
       <div className={`relative rounded-xl overflow-hidden ${aspectClass} w-full max-w-[400px]`}>
         {/* For edit mode, show original image with overlay */}
