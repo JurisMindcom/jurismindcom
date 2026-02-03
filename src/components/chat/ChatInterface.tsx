@@ -2,7 +2,8 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Send, Mic, MicOff, Languages, Bot, Loader2, UserCircle,
-  Zap, BookOpen, Upload, X, FileText, AlertCircle, Globe, Scan, Flame, ChevronDown, ImageIcon, Sparkles, Images
+  Zap, BookOpen, Upload, X, FileText, AlertCircle, Globe, Scan, Flame, ChevronDown, ImageIcon, Sparkles, Images,
+  Volume2, VolumeX
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -31,6 +32,7 @@ import StreamingMessage from './StreamingMessage';
 import useIncrementalStream from '@/hooks/useIncrementalStream';
 import useImageAI from '@/hooks/useImageAI';
 import ImageCustomizationPanel, { ImageCustomization } from './ImageCustomizationPanel';
+import useVoiceIO from '@/hooks/useVoiceIO';
 
 // Memory cap: keep only last N messages in state
 const MAX_MESSAGES_IN_MEMORY = 100;
@@ -62,7 +64,7 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
   const [isLoading, setIsLoading] = useState(false);
   const [personality, setPersonality] = useState<'lawyer' | 'judge' | 'researcher' | 'student'>('lawyer');
   const [language, setLanguage] = useState<'bangla' | 'english' | 'mixed'>('english');
-  const [isListening, setIsListening] = useState(false);
+  // isListening is now handled by voiceIO hook
   const [responseMode, setResponseMode] = useState<'short' | 'deep' | 'extreme'>('deep');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
@@ -90,6 +92,20 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
   
   // Image AI hook
   const { isProcessing: isImageProcessing, generateImage, analyzeImage, editImage, fileToBase64 } = useImageAI();
+  
+  // Voice IO hook for voice input and TTS output
+  const [voiceModeEnabled, setVoiceModeEnabled] = useState(false);
+  const voiceIO = useVoiceIO({
+    language: language,
+    onTranscript: (text, isFinal) => {
+      if (isFinal && text.trim()) {
+        setInput(prev => (prev + ' ' + text).trim());
+      }
+    },
+    onError: (error) => {
+      toast({ title: "Voice Error", description: error, variant: "destructive" });
+    },
+  });
   
   // Use the incremental streaming hook for Deep Mode stability
   const {
@@ -863,6 +879,11 @@ ${scrapedContent.content?.substring(0, 15000) || 'No content extracted'}
             content: assistantMsg.content, 
             created_at: assistantMsg.created_at 
           }]);
+          
+          // If voice mode is enabled, speak the response automatically
+          if (voiceModeEnabled) {
+            voiceIO.speak(assistantMsg.content, language);
+          }
         }
         resetStream();
       } else if (result.error) {
@@ -1316,19 +1337,115 @@ ${scrapedContent.content?.substring(0, 15000) || 'No content extracted'}
             </DropdownMenu>
           </div>
 
+          {/* Voice Listening Indicator */}
+          {voiceIO.isListening && (
+            <div className="flex items-center gap-2 px-3 py-2 mb-2 rounded-lg bg-destructive/10 border border-destructive/30">
+              <div className="flex gap-1">
+                <span className="w-1 h-4 bg-destructive rounded-full animate-pulse" style={{ animationDelay: '0ms' }} />
+                <span className="w-1 h-4 bg-destructive rounded-full animate-pulse" style={{ animationDelay: '150ms' }} />
+                <span className="w-1 h-4 bg-destructive rounded-full animate-pulse" style={{ animationDelay: '300ms' }} />
+              </div>
+              <span className="text-sm text-destructive font-medium">
+                {voiceIO.interimTranscript || 'Listening...'}
+              </span>
+            </div>
+          )}
+          
+          {/* TTS Speaking Indicator */}
+          {voiceIO.isSpeaking && (
+            <div className="flex items-center gap-2 px-3 py-2 mb-2 rounded-lg bg-primary/10 border border-primary/30">
+              <Volume2 className="w-4 h-4 text-primary animate-pulse" />
+              <span className="text-sm text-primary font-medium">Speaking response...</span>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                className="h-6 px-2 text-xs"
+                onClick={() => voiceIO.stopSpeaking()}
+              >
+                Stop
+              </Button>
+            </div>
+          )}
+
           <Textarea 
-            placeholder={getPlaceholder()} 
+            placeholder={voiceIO.isListening ? '🎤 Speak now...' : getPlaceholder()} 
             value={input} 
             onChange={(e) => setInput(e.target.value)} 
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }}} 
-            className="min-h-[60px] max-h-[120px] resize-none" 
-            disabled={isLoading || isScrapingUrl || isImageProcessing} 
+            className={`min-h-[60px] max-h-[120px] resize-none ${voiceIO.isListening ? 'border-destructive/50' : ''}`} 
+            disabled={isLoading || isScrapingUrl || isImageProcessing}
           />
 
           <div className="flex flex-col gap-2">
-            <Button variant="outline" size="icon" onClick={() => toast({ title: "Voice input", description: "Coming soon!" })} className={isListening ? 'bg-primary text-primary-foreground' : ''}>
-              {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-            </Button>
+            {/* Voice Input Button */}
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button 
+                    variant="outline" 
+                    size="icon" 
+                    onClick={() => {
+                      if (!voiceIO.isSupported) {
+                        toast({ title: "Not Supported", description: "Voice input is not supported in this browser.", variant: "destructive" });
+                        return;
+                      }
+                      voiceIO.toggleListening();
+                      if (!voiceIO.isListening) {
+                        setVoiceModeEnabled(true);
+                        toast({ title: "🎤 Voice Mode Active", description: "Speak now. TTS will read the response." });
+                      }
+                    }} 
+                    className={`relative transition-all ${
+                      voiceIO.isListening 
+                        ? 'bg-destructive text-destructive-foreground animate-pulse' 
+                        : voiceModeEnabled 
+                          ? 'bg-primary/20 border-primary' 
+                          : ''
+                    }`}
+                    disabled={isLoading || isStreaming}
+                  >
+                    {voiceIO.isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                    {voiceIO.isListening && (
+                      <span className="absolute -top-1 -right-1 w-2 h-2 bg-destructive rounded-full animate-ping" />
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {voiceIO.isListening ? 'Stop Listening' : 'Voice Input (Tap to Speak)'}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            
+            {/* TTS Toggle Button */}
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button 
+                    variant="outline" 
+                    size="icon"
+                    onClick={() => {
+                      if (voiceIO.isSpeaking) {
+                        voiceIO.stopSpeaking();
+                      } else {
+                        setVoiceModeEnabled(!voiceModeEnabled);
+                        toast({ 
+                          title: !voiceModeEnabled ? "🔊 TTS Enabled" : "🔇 TTS Disabled", 
+                          description: !voiceModeEnabled ? "Responses will be spoken aloud." : "Responses will be text only."
+                        });
+                      }
+                    }}
+                    className={`${voiceModeEnabled ? 'bg-primary/20 border-primary' : ''} ${voiceIO.isSpeaking ? 'animate-pulse' : ''}`}
+                  >
+                    {voiceIO.isSpeaking ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {voiceIO.isSpeaking ? 'Stop Speaking' : voiceModeEnabled ? 'Disable TTS' : 'Enable TTS'}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            
+            {/* Send Button */}
             <Button 
               size="icon" 
               onClick={handleSend} 
