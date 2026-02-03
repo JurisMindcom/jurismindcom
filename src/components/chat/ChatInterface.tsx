@@ -33,6 +33,7 @@ import useIncrementalStream from '@/hooks/useIncrementalStream';
 import useImageAI from '@/hooks/useImageAI';
 import ImageCustomizationPanel, { ImageCustomization } from './ImageCustomizationPanel';
 import useVoiceIO from '@/hooks/useVoiceIO';
+import useElevenLabsTTS from '@/hooks/useElevenLabsTTS';
 import VoiceWaveform from './VoiceWaveform';
 import PlusButtonMenu from './PlusButtonMenu';
 
@@ -95,19 +96,24 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
   // Image AI hook
   const { isProcessing: isImageProcessing, generateImage, analyzeImage, editImage, fileToBase64 } = useImageAI();
   
-  // Voice IO hook for voice input and TTS output
+  // Voice IO hook for voice input (STT only)
   const [voiceModeEnabled, setVoiceModeEnabled] = useState(false);
+  const voiceInputUsedRef = useRef(false); // Track if current message was sent via voice
   const voiceIO = useVoiceIO({
     language: language,
     onTranscript: (text, isFinal) => {
       if (isFinal && text.trim()) {
         setInput(prev => (prev + ' ' + text).trim());
+        voiceInputUsedRef.current = true; // Mark that voice was used
       }
     },
     onError: (error) => {
       toast({ title: "Voice Error", description: error, variant: "destructive" });
     },
   });
+  
+  // ElevenLabs TTS for high-quality voice output (only used when voice input was used)
+  const elevenLabsTTS = useElevenLabsTTS();
   
   // Track last spoken position for live TTS during streaming
   const lastSpokenIndexRef = useRef(0);
@@ -131,9 +137,10 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
     },
   });
 
-  // Live TTS during streaming - speak sentences as they complete
+  // Live TTS during streaming - speak sentences as they complete (ONLY when voice input was used)
   useEffect(() => {
-    if (!voiceModeEnabled || !isStreaming || !streamingContent) return;
+    // CRITICAL: Only speak if voice input was used for this message
+    if (!voiceInputUsedRef.current || !isStreaming || !streamingContent) return;
     
     // Find complete sentences after the last spoken position
     const newContent = streamingContent.slice(lastSpokenIndexRef.current);
@@ -144,18 +151,23 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
     if (sentenceMatch) {
       const sentence = sentenceMatch[0].trim();
       if (sentence.length > 5) { // Only speak meaningful sentences
-        voiceIO.speak(sentence, language);
+        // Use ElevenLabs for high-quality human-like voice
+        elevenLabsTTS.speak(sentence, language);
         lastSpokenIndexRef.current += sentenceMatch[0].length;
       }
     }
-  }, [streamingContent, isStreaming, voiceModeEnabled, language]);
+  }, [streamingContent, isStreaming, language, elevenLabsTTS]);
 
-  // Reset spoken position when streaming ends
+  // Reset spoken position and voice input flag when streaming ends
   useEffect(() => {
     if (!isStreaming) {
       lastSpokenIndexRef.current = 0;
+      // Reset voice input flag after response is complete
+      if (!isLoading) {
+        voiceInputUsedRef.current = false;
+      }
     }
-  }, [isStreaming]);
+  }, [isStreaming, isLoading]);
 
   useEffect(() => {
     if (conversationId) {
@@ -1269,11 +1281,12 @@ ${scrapedContent.content?.substring(0, 15000) || 'No content extracted'}
               value={input} 
               onChange={(e) => {
                 setInput(e.target.value);
-                // Auto-disable voice mode when typing
+                // Auto-disable voice mode when typing - reset voice flag
                 if (voiceIO.isListening && e.target.value.trim()) {
                   voiceIO.stopListening();
+                  voiceInputUsedRef.current = false; // Reset: typing overrides voice
                 }
-              }} 
+              }}
               onKeyDown={(e) => { 
                 if (e.key === 'Enter' && !e.shiftKey) { 
                   e.preventDefault(); 
@@ -1369,8 +1382,10 @@ ${scrapedContent.content?.substring(0, 15000) || 'No content extracted'}
                     return;
                   }
                   voiceIO.toggleListening();
+                  // When starting to listen, voice mode is enabled for TTS
                   if (!voiceIO.isListening) {
                     setVoiceModeEnabled(true);
+                    voiceInputUsedRef.current = true; // Mark voice will be used
                   }
                 }}
                 disabled={isLoading || isStreaming}
@@ -1390,9 +1405,10 @@ ${scrapedContent.content?.substring(0, 15000) || 'No content extracted'}
                 }`}
                 onClick={() => {
                   if (isStreaming || isLoading) {
-                    // Cancel generation
+                    // Cancel generation and TTS
                     cancelStreaming();
-                    voiceIO.stopSpeaking();
+                    elevenLabsTTS.stopSpeaking(); // Stop ElevenLabs TTS
+                    voiceInputUsedRef.current = false; // Reset voice flag
                     resetStream();
                     setIsLoading(false);
                     toast({ title: "Cancelled", description: "Generation stopped." });
