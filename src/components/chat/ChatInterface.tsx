@@ -33,13 +33,21 @@ import useIncrementalStream from '@/hooks/useIncrementalStream';
 import useImageAI from '@/hooks/useImageAI';
 import ImageCustomizationPanel, { ImageCustomization } from './ImageCustomizationPanel';
 import useVoiceIO from '@/hooks/useVoiceIO';
-import useElevenLabsTTS from '@/hooks/useElevenLabsTTS';
+import useBrowserTTS from '@/hooks/useBrowserTTS';
+import useVoiceRecorder from '@/hooks/useVoiceRecorder';
 import VoiceWaveform from './VoiceWaveform';
+import VoiceMessageCard from './VoiceMessageCard';
+import TTSSpeakButton from './TTSSpeakButton';
 import PlusButtonMenu from './PlusButtonMenu';
 
 // Memory cap: keep only last N messages in state
 const MAX_MESSAGES_IN_MEMORY = 100;
 const MAX_MULTI_IMAGES = 10;
+
+interface VoiceMessage {
+  audioBlob: Blob;
+  duration: number;
+}
 
 interface Message {
   id: string;
@@ -51,6 +59,7 @@ interface Message {
   pendingMode?: 'generate' | 'analyze' | 'edit';
   pendingAspectRatio?: string;
   pendingOriginalImage?: string;
+  voiceMessage?: VoiceMessage; // For voice input messages
 }
 
 
@@ -86,6 +95,8 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
   });
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
   const [uploadedImages, setUploadedImages] = useState<string[]>([]);
+  const [pendingTTSContent, setPendingTTSContent] = useState<string | null>(null); // Content to speak via TTS button
+  const [voiceInputUsed, setVoiceInputUsed] = useState(false); // Track if voice was used for current message
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -96,24 +107,23 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
   // Image AI hook
   const { isProcessing: isImageProcessing, generateImage, analyzeImage, editImage, fileToBase64 } = useImageAI();
   
+  // Voice recorder for capturing voice messages
+  const voiceRecorder = useVoiceRecorder();
+  
   // Voice IO hook for voice input (STT only)
-  const [voiceModeEnabled, setVoiceModeEnabled] = useState(false);
-  const voiceInputUsedRef = useRef(false); // Track if current message was sent via voice
   const voiceIO = useVoiceIO({
     language: language,
     onTranscript: (text, isFinal) => {
-      if (isFinal && text.trim()) {
-        setInput(prev => (prev + ' ' + text).trim());
-        voiceInputUsedRef.current = true; // Mark that voice was used
-      }
+      // Voice input is processed internally - we'll send when recording stops
+      // No transcription shown to user per requirements
     },
     onError: (error) => {
       toast({ title: "Voice Error", description: error, variant: "destructive" });
     },
   });
   
-  // ElevenLabs TTS for high-quality voice output (only used when voice input was used)
-  const elevenLabsTTS = useElevenLabsTTS();
+  // Browser TTS for voice output (replaces ElevenLabs)
+  const browserTTS = useBrowserTTS({ language });
   
   // Track last spoken position for live TTS during streaming
   const lastSpokenIndexRef = useRef(0);
@@ -137,35 +147,27 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
     },
   });
 
-  // Live TTS during streaming - speak sentences as they complete (ONLY when voice input was used)
+  // Auto-trigger TTS for voice input questions when streaming completes
   useEffect(() => {
-    // CRITICAL: Only speak if voice input was used for this message
-    if (!voiceInputUsedRef.current || !isStreaming || !streamingContent) return;
+    // Only auto-trigger TTS if voice input was used for this message
+    if (!voiceInputUsed || isStreaming || !streamingContent) return;
     
-    // Find complete sentences after the last spoken position
-    const newContent = streamingContent.slice(lastSpokenIndexRef.current);
-    
-    // Match complete sentences ending with period, question mark, or exclamation
-    const sentenceMatch = newContent.match(/^[^.!?]*[.!?]+\s*/);
-    
-    if (sentenceMatch) {
-      const sentence = sentenceMatch[0].trim();
-      if (sentence.length > 5) { // Only speak meaningful sentences
-        // Use ElevenLabs for high-quality human-like voice
-        elevenLabsTTS.speak(sentence, language);
-        lastSpokenIndexRef.current += sentenceMatch[0].length;
-      }
+    // When streaming ends, set the content for TTS button to speak
+    if (streamingContent && streamingContent.length > 10) {
+      setPendingTTSContent(streamingContent);
+      // Auto-trigger TTS for voice input questions
+      browserTTS.speak(streamingContent);
     }
-  }, [streamingContent, isStreaming, language, elevenLabsTTS]);
+  }, [isStreaming, streamingContent, voiceInputUsed]);
 
-  // Reset spoken position and voice input flag when streaming ends
+  // Reset voice input flag when streaming ends
   useEffect(() => {
-    if (!isStreaming) {
+    if (!isStreaming && !isLoading) {
       lastSpokenIndexRef.current = 0;
-      // Reset voice input flag after response is complete
-      if (!isLoading) {
-        voiceInputUsedRef.current = false;
-      }
+      // Reset voice input flag after response is complete (with delay)
+      setTimeout(() => {
+        setVoiceInputUsed(false);
+      }, 500);
     }
   }, [isStreaming, isLoading]);
 
@@ -923,9 +925,12 @@ ${scrapedContent.content?.substring(0, 15000) || 'No content extracted'}
             created_at: assistantMsg.created_at 
           }]);
           
-          // If voice mode is enabled, speak the response automatically
-          if (voiceModeEnabled) {
-            voiceIO.speak(assistantMsg.content, language);
+          // Set pending TTS content for the Speak button
+          setPendingTTSContent(assistantMsg.content);
+          
+          // If voice mode was used, auto-speak the response via TTS button
+          if (voiceInputUsed) {
+            browserTTS.speak(assistantMsg.content);
           }
         }
         resetStream();
@@ -1243,20 +1248,52 @@ ${scrapedContent.content?.substring(0, 15000) || 'No content extracted'}
           </div>
         )}
         
-        {/* TTS Speaking Indicator */}
-        {voiceIO.isSpeaking && (
-          <div className="mb-3 p-3 rounded-lg bg-primary/10 border border-primary/30">
+        {/* TTS Speaking Indicator - Orange themed with pause/resume */}
+        {browserTTS.isSpeaking && (
+          <div className="mb-3 p-3 rounded-lg bg-accent/20 border border-accent/40">
             <div className="flex items-center gap-3">
-              <Volume2 className="w-5 h-5 text-primary animate-pulse" />
-              <span className="flex-1 text-sm text-primary font-medium">Speaking response...</span>
-              <Button 
-                variant="ghost" 
-                size="sm" 
-                className="h-7 px-2 text-xs"
-                onClick={() => voiceIO.stopSpeaking()}
-              >
-                Stop
-              </Button>
+              <div className="relative">
+                <Volume2 className="w-5 h-5 text-accent animate-pulse" />
+                {/* Orange indicator dots */}
+                <div className="absolute -top-1 -right-1 flex gap-0.5">
+                  {[0, 1, 2].map((i) => (
+                    <motion.span
+                      key={i}
+                      className="w-1 h-1 rounded-full bg-accent"
+                      animate={{
+                        opacity: [0.4, 1, 0.4],
+                        scale: [0.8, 1.2, 0.8],
+                      }}
+                      transition={{
+                        duration: 0.8,
+                        repeat: Infinity,
+                        delay: i * 0.15,
+                      }}
+                    />
+                  ))}
+                </div>
+              </div>
+              <span className="flex-1 text-sm text-accent font-medium">
+                {browserTTS.isPaused ? 'Paused' : 'Speaking response...'}
+              </span>
+              <div className="flex items-center gap-1">
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  className="h-7 px-2 text-xs"
+                  onClick={() => browserTTS.isPaused ? browserTTS.resume() : browserTTS.pause()}
+                >
+                  {browserTTS.isPaused ? 'Resume' : 'Pause'}
+                </Button>
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  className="h-7 px-2 text-xs"
+                  onClick={() => browserTTS.stop()}
+                >
+                  Stop
+                </Button>
+              </div>
             </div>
           </div>
         )}
@@ -1284,7 +1321,7 @@ ${scrapedContent.content?.substring(0, 15000) || 'No content extracted'}
                 // Auto-disable voice mode when typing - reset voice flag
                 if (voiceIO.isListening && e.target.value.trim()) {
                   voiceIO.stopListening();
-                  voiceInputUsedRef.current = false; // Reset: typing overrides voice
+                  setVoiceInputUsed(false); // Reset: typing overrides voice
                 }
               }}
               onKeyDown={(e) => { 
@@ -1384,8 +1421,7 @@ ${scrapedContent.content?.substring(0, 15000) || 'No content extracted'}
                   voiceIO.toggleListening();
                   // When starting to listen, voice mode is enabled for TTS
                   if (!voiceIO.isListening) {
-                    setVoiceModeEnabled(true);
-                    voiceInputUsedRef.current = true; // Mark voice will be used
+                    setVoiceInputUsed(true); // Mark voice will be used
                   }
                 }}
                 disabled={isLoading || isStreaming}
@@ -1407,8 +1443,8 @@ ${scrapedContent.content?.substring(0, 15000) || 'No content extracted'}
                   if (isStreaming || isLoading) {
                     // Cancel generation and TTS
                     cancelStreaming();
-                    elevenLabsTTS.stopSpeaking(); // Stop ElevenLabs TTS
-                    voiceInputUsedRef.current = false; // Reset voice flag
+                    browserTTS.stop(); // Stop browser TTS
+                    setVoiceInputUsed(false); // Reset voice flag
                     resetStream();
                     setIsLoading(false);
                     toast({ title: "Cancelled", description: "Generation stopped." });

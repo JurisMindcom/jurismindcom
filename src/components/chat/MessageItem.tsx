@@ -1,6 +1,6 @@
-import { memo } from 'react';
+import { memo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Bot, User, Copy, Check, Download } from 'lucide-react';
+import { Bot, User, Copy, Check, Download, Play, Pause, Mic } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Tooltip,
@@ -9,6 +9,13 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import ImageProcessingPlaceholder from './ImageProcessingPlaceholder';
+import TTSSpeakButton from './TTSSpeakButton';
+import useBrowserTTS from '@/hooks/useBrowserTTS';
+
+interface VoiceMessage {
+  audioBlob: Blob;
+  duration: number;
+}
 
 interface MessageItemProps {
   id: string;
@@ -23,6 +30,7 @@ interface MessageItemProps {
   pendingMode?: 'generate' | 'analyze' | 'edit';
   pendingAspectRatio?: string;
   pendingOriginalImage?: string;
+  voiceMessage?: VoiceMessage;
 }
 
 type ParsedImage = {
@@ -42,10 +50,13 @@ const parseFirstMarkdownImage = (content: string): ParsedImage => {
 };
 
 // Memoized message component to prevent unnecessary re-renders
-const MessageItem = memo(({ id, role, content, created_at, index, copiedId, onCopy, imageUrl, pending, pendingMode, pendingAspectRatio, pendingOriginalImage }: MessageItemProps) => {
+const MessageItem = memo(({ id, role, content, created_at, index, copiedId, onCopy, imageUrl, pending, pendingMode, pendingAspectRatio, pendingOriginalImage, voiceMessage }: MessageItemProps) => {
   const parsed = role === 'assistant' ? parseFirstMarkdownImage(content) : null;
   const resolvedImageUrl = imageUrl || parsed?.url;
   const resolvedText = parsed ? parsed.rest : content;
+  
+  // TTS for assistant messages
+  const browserTTS = useBrowserTTS({});
 
   if (role === 'assistant') {
     return (
@@ -124,6 +135,18 @@ const MessageItem = memo(({ id, role, content, created_at, index, copiedId, onCo
               <span className="text-xs text-muted-foreground">
                 {new Date(created_at).toLocaleTimeString()}
               </span>
+
+              {/* TTS Speak Button for assistant messages */}
+              {resolvedText && (
+                <TTSSpeakButton
+                  isSpeaking={browserTTS.isSpeaking}
+                  isPaused={browserTTS.isPaused}
+                  onSpeak={() => browserTTS.speak(resolvedText)}
+                  onPause={() => browserTTS.pause()}
+                  onResume={() => browserTTS.resume()}
+                  onStop={() => browserTTS.stop()}
+                />
+              )}
 
               <TooltipProvider>
                 <Tooltip>
@@ -206,7 +229,8 @@ const MessageItem = memo(({ id, role, content, created_at, index, copiedId, onCo
     prevProps.pending === nextProps.pending &&
     prevProps.pendingMode === nextProps.pendingMode &&
     prevProps.pendingAspectRatio === nextProps.pendingAspectRatio &&
-    prevProps.pendingOriginalImage === nextProps.pendingOriginalImage
+    prevProps.pendingOriginalImage === nextProps.pendingOriginalImage &&
+    prevProps.voiceMessage === nextProps.voiceMessage
   );
 });
 
