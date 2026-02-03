@@ -2,8 +2,8 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Send, Mic, MicOff, Languages, Bot, Loader2, UserCircle,
-  Zap, BookOpen, Upload, X, FileText, AlertCircle, Globe, Scan, Flame, ChevronDown, ImageIcon, Sparkles, Images,
-  Volume2, VolumeX
+  Zap, BookOpen, Upload, X, FileText, AlertCircle, Globe, Scan, Flame, ChevronDown, ImageIcon, Sparkles,
+  Volume2, VolumeX, Square
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -33,6 +33,8 @@ import useIncrementalStream from '@/hooks/useIncrementalStream';
 import useImageAI from '@/hooks/useImageAI';
 import ImageCustomizationPanel, { ImageCustomization } from './ImageCustomizationPanel';
 import useVoiceIO from '@/hooks/useVoiceIO';
+import VoiceWaveform from './VoiceWaveform';
+import PlusButtonMenu from './PlusButtonMenu';
 
 // Memory cap: keep only last N messages in state
 const MAX_MESSAGES_IN_MEMORY = 100;
@@ -107,6 +109,9 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
     },
   });
   
+  // Track last spoken position for live TTS during streaming
+  const lastSpokenIndexRef = useRef(0);
+  
   // Use the incremental streaming hook for Deep Mode stability
   const {
     stream,
@@ -125,6 +130,32 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
       console.error('Stream error:', { error: error.message, telemetryId: tid });
     },
   });
+
+  // Live TTS during streaming - speak sentences as they complete
+  useEffect(() => {
+    if (!voiceModeEnabled || !isStreaming || !streamingContent) return;
+    
+    // Find complete sentences after the last spoken position
+    const newContent = streamingContent.slice(lastSpokenIndexRef.current);
+    
+    // Match complete sentences ending with period, question mark, or exclamation
+    const sentenceMatch = newContent.match(/^[^.!?]*[.!?]+\s*/);
+    
+    if (sentenceMatch) {
+      const sentence = sentenceMatch[0].trim();
+      if (sentence.length > 5) { // Only speak meaningful sentences
+        voiceIO.speak(sentence, language);
+        lastSpokenIndexRef.current += sentenceMatch[0].length;
+      }
+    }
+  }, [streamingContent, isStreaming, voiceModeEnabled, language]);
+
+  // Reset spoken position when streaming ends
+  useEffect(() => {
+    if (!isStreaming) {
+      lastSpokenIndexRef.current = 0;
+    }
+  }, [isStreaming]);
 
   useEffect(() => {
     if (conversationId) {
@@ -1173,23 +1204,68 @@ ${scrapedContent.content?.substring(0, 15000) || 'No content extracted'}
           </div>
         )}
 
-        {/* Selectors Row with Image AI Dropdown */}
-        <div className="flex items-center gap-2 mb-3 flex-wrap">
-          <Select value={personality} onValueChange={(v: any) => setPersonality(v)}>
-            <SelectTrigger className="w-auto min-w-[130px] h-8 text-xs">
-              <UserCircle className="mr-1 h-3 w-3" /><SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="lawyer">{personalityIcons.lawyer} Lawyer</SelectItem>
-              <SelectItem value="judge">{personalityIcons.judge} Judge</SelectItem>
-              <SelectItem value="researcher">{personalityIcons.researcher} Researcher</SelectItem>
-              <SelectItem value="student">{personalityIcons.student} Student</SelectItem>
-            </SelectContent>
-          </Select>
+        {/* New ChatGPT-Style Bottom Bar: [ 🌐 Language ] [ Type here... 🎤 ] [ ＋ ] [ ➤ Send/Stop ] */}
+        
+        {/* Voice Listening Indicator with Waveform */}
+        {voiceIO.isListening && (
+          <div className="mb-3 p-3 rounded-lg bg-destructive/10 border border-destructive/30">
+            <div className="flex items-center gap-3">
+              <VoiceWaveform isActive={voiceIO.isListening} />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-destructive">
+                  {voiceIO.interimTranscript || 'Listening...'}
+                </p>
+                {voiceIO.transcript && (
+                  <p className="text-xs text-muted-foreground truncate">{voiceIO.transcript}</p>
+                )}
+              </div>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                className="h-7 px-2 text-xs text-destructive hover:bg-destructive/20"
+                onClick={() => voiceIO.stopListening()}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
+        
+        {/* TTS Speaking Indicator */}
+        {voiceIO.isSpeaking && (
+          <div className="mb-3 p-3 rounded-lg bg-primary/10 border border-primary/30">
+            <div className="flex items-center gap-3">
+              <Volume2 className="w-5 h-5 text-primary animate-pulse" />
+              <span className="flex-1 text-sm text-primary font-medium">Speaking response...</span>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                className="h-7 px-2 text-xs"
+                onClick={() => voiceIO.stopSpeaking()}
+              >
+                Stop
+              </Button>
+            </div>
+          </div>
+        )}
 
+        {/* Image Customization Panel when in generate/edit mode */}
+        {(imageMode === 'generate' || imageMode === 'edit') && (
+          <div className="mb-3">
+            <ImageCustomizationPanel
+              value={imageCustomization}
+              onChange={setImageCustomization}
+              disabled={isLoading || isImageProcessing}
+            />
+          </div>
+        )}
+
+        {/* Main Input Row */}
+        <div className="flex items-end gap-2">
+          {/* Language Selector Button - Always visible outside plus menu */}
           <Select value={language} onValueChange={(v: any) => setLanguage(v)}>
-            <SelectTrigger className="w-auto min-w-[110px] h-8 text-xs">
-              <Languages className="mr-1 h-3 w-3" /><SelectValue />
+            <SelectTrigger className="w-auto h-10 px-3 text-sm border-border/50">
+              <Languages className="h-4 w-4" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="english">🇬🇧 English</SelectItem>
@@ -1198,269 +1274,137 @@ ${scrapedContent.content?.substring(0, 15000) || 'No content extracted'}
             </SelectContent>
           </Select>
 
-          {/* Image AI Dropdown in the selector row */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button 
-                variant="outline" 
-                size="sm"
-                className={`h-8 text-xs gap-1 ${imageMode !== 'off' ? 'bg-gradient-to-r from-pink-500/20 to-purple-500/20 border-pink-500/50' : ''}`}
-              >
-                {imageMode === 'generate' && <Sparkles className="h-3 w-3 text-pink-500" />}
-                {imageMode === 'analyze' && <Scan className="h-3 w-3 text-blue-500" />}
-                {imageMode === 'edit' && <ImageIcon className="h-3 w-3 text-purple-500" />}
-                {imageMode === 'off' && <ImageIcon className="h-3 w-3" />}
-                {imageMode === 'off' ? 'Image AI' : imageMode === 'generate' ? 'Generate' : imageMode === 'analyze' ? 'Analyze' : 'Edit'}
-                <ChevronDown className="h-3 w-3 opacity-50" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-48">
-              <DropdownMenuItem 
-                onClick={() => setImageMode('generate')}
-                className={`gap-2 ${imageMode === 'generate' ? 'bg-pink-500/10' : ''}`}
-              >
-                <Sparkles className="h-4 w-4 text-pink-500" />
-                <div className="flex flex-col">
-                  <span className="font-medium">Generate Image</span>
-                  <span className="text-xs text-muted-foreground">Create from text</span>
-                </div>
-              </DropdownMenuItem>
-              <DropdownMenuItem 
-                onClick={() => setImageMode('analyze')}
-                className={`gap-2 ${imageMode === 'analyze' ? 'bg-blue-500/10' : ''}`}
-              >
-                <Scan className="h-4 w-4 text-blue-500" />
-                <div className="flex flex-col">
-                  <span className="font-medium">Analyze Image</span>
-                  <span className="text-xs text-muted-foreground">Extract insights</span>
-                </div>
-              </DropdownMenuItem>
-              <DropdownMenuItem 
-                onClick={() => setImageMode('edit')}
-                className={`gap-2 ${imageMode === 'edit' ? 'bg-purple-500/10' : ''}`}
-              >
-                <ImageIcon className="h-4 w-4 text-purple-500" />
-                <div className="flex flex-col">
-                  <span className="font-medium">Edit Image</span>
-                  <span className="text-xs text-muted-foreground">Modify with AI</span>
-                </div>
-              </DropdownMenuItem>
-              {imageMode !== 'off' && (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => { setImageMode('off'); setUploadedImage(null); }}>
-                    <X className="h-4 w-4 mr-2" />
-                    Exit Image Mode
-                  </DropdownMenuItem>
-                </>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          {/* New Customization Panel - replaces old aspect ratio selector */}
-          {(imageMode === 'generate' || imageMode === 'edit') && (
-            <ImageCustomizationPanel
-              value={imageCustomization}
-              onChange={setImageCustomization}
-              disabled={isLoading || isImageProcessing}
+          {/* Input Field with integrated Mic button */}
+          <div className="flex-1 relative">
+            <Textarea 
+              placeholder={voiceIO.isListening ? '🎤 Speak now...' : getPlaceholder()} 
+              value={input} 
+              onChange={(e) => {
+                setInput(e.target.value);
+                // Auto-disable voice mode when typing
+                if (voiceIO.isListening && e.target.value.trim()) {
+                  voiceIO.stopListening();
+                }
+              }} 
+              onKeyDown={(e) => { 
+                if (e.key === 'Enter' && !e.shiftKey) { 
+                  e.preventDefault(); 
+                  handleSend(); 
+                }
+              }} 
+              className={`min-h-[44px] max-h-[120px] resize-none pr-12 ${
+                voiceIO.isListening ? 'border-destructive/50 bg-destructive/5' : ''
+              }`} 
+              disabled={isLoading || isScrapingUrl || isImageProcessing}
             />
-          )}
-        </div>
-
-        {/* Input Area */}
-        <div className="flex gap-2">
-          <div className="flex flex-col gap-2">
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button variant="outline" size="icon" onClick={() => fileInputRef.current?.click()} disabled={isUploading || isOcrProcessing}>
-                    {isUploading || isOcrProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Upload File (PDF, Image, Doc)</TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
             
-            <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileUpload} accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png,.xlsx,.xls,.zip,.webp,.bmp,.tiff,.gif" />
+            {/* Integrated Mic Button inside Input */}
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              className={`absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8 ${
+                voiceIO.isListening 
+                  ? 'bg-destructive text-destructive-foreground' 
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+              onClick={() => {
+                if (!voiceIO.isSupported) {
+                  toast({ title: "Not Supported", description: "Voice input is not supported in this browser.", variant: "destructive" });
+                  return;
+                }
+                voiceIO.toggleListening();
+                if (!voiceIO.isListening) {
+                  setVoiceModeEnabled(true);
+                }
+              }}
+              disabled={isLoading || isStreaming}
+            >
+              {voiceIO.isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+            </Button>
+          </div>
 
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
+          {/* Plus Button - Feature Launcher */}
+          <PlusButtonMenu
+            personality={personality}
+            responseMode={responseMode}
+            imageMode={imageMode}
+            onPersonalityChange={setPersonality}
+            onResponseModeChange={handleResponseModeChange}
+            onImageModeChange={(mode) => {
+              setImageMode(mode);
+              if (mode !== 'off') {
+                toast({ 
+                  title: `🖼 ${mode.charAt(0).toUpperCase() + mode.slice(1)} Mode`, 
+                  description: mode === 'generate' ? 'Describe the image to generate' : mode === 'analyze' ? 'Upload an image to analyze' : 'Upload an image to edit'
+                });
+              }
+            }}
+            disabled={isLoading || isImageProcessing}
+          />
+
+          {/* Upload Button (for files/images) */}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
                 <Button 
                   variant="outline" 
                   size="icon" 
-                  className={`transition-all relative ${
-                    responseMode === 'extreme' 
-                      ? 'bg-orange-500/20 border-orange-500 shadow-lg shadow-orange-500/30' 
-                      : responseMode === 'deep' 
-                        ? 'bg-primary/20 border-primary shadow-lg shadow-primary/20' 
-                        : 'opacity-60'
-                  }`}
+                  className="h-10 w-10"
+                  onClick={() => fileInputRef.current?.click()} 
+                  disabled={isUploading || isOcrProcessing}
                 >
-                  {responseMode === 'short' && <Zap className="h-4 w-4" />}
-                  {responseMode === 'deep' && <BookOpen className="h-4 w-4" />}
-                  {responseMode === 'extreme' && <Flame className="h-4 w-4 text-orange-500" />}
-                  <ChevronDown className="h-2.5 w-2.5 absolute -bottom-0.5 -right-0.5 opacity-70" />
+                  {isUploading || isOcrProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
                 </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-56">
-                <DropdownMenuItem 
-                  onClick={() => handleResponseModeChange('short')}
-                  className={`gap-3 ${responseMode === 'short' ? 'bg-primary/10' : ''}`}
-                >
-                  <Zap className="h-4 w-4" />
-                  <div className="flex flex-col">
-                    <span className="font-medium">Short Mode</span>
-                    <span className="text-xs text-muted-foreground">Brief answers (1-7 lines)</span>
-                  </div>
-                </DropdownMenuItem>
-                <DropdownMenuItem 
-                  onClick={() => handleResponseModeChange('deep')}
-                  className={`gap-3 ${responseMode === 'deep' ? 'bg-primary/10' : ''}`}
-                >
-                  <BookOpen className="h-4 w-4" />
-                  <div className="flex flex-col">
-                    <span className="font-medium">Deep Mode</span>
-                    <span className="text-xs text-muted-foreground">Detailed & comprehensive</span>
-                  </div>
-                </DropdownMenuItem>
-                <DropdownMenuItem 
-                  onClick={() => handleResponseModeChange('extreme')}
-                  className={`gap-3 ${responseMode === 'extreme' ? 'bg-orange-500/10' : ''}`}
-                >
-                  <Flame className="h-4 w-4 text-orange-500" />
-                  <div className="flex flex-col">
-                    <span className="font-medium text-orange-500">Extreme Deep Mode</span>
-                    <span className="text-xs text-muted-foreground">3,500-4,500 words, 12 sections</span>
-                  </div>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-
-          {/* Voice Listening Indicator */}
-          {voiceIO.isListening && (
-            <div className="flex items-center gap-2 px-3 py-2 mb-2 rounded-lg bg-destructive/10 border border-destructive/30">
-              <div className="flex gap-1">
-                <span className="w-1 h-4 bg-destructive rounded-full animate-pulse" style={{ animationDelay: '0ms' }} />
-                <span className="w-1 h-4 bg-destructive rounded-full animate-pulse" style={{ animationDelay: '150ms' }} />
-                <span className="w-1 h-4 bg-destructive rounded-full animate-pulse" style={{ animationDelay: '300ms' }} />
-              </div>
-              <span className="text-sm text-destructive font-medium">
-                {voiceIO.interimTranscript || 'Listening...'}
-              </span>
-            </div>
-          )}
+              </TooltipTrigger>
+              <TooltipContent>Upload File or Image</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
           
-          {/* TTS Speaking Indicator */}
-          {voiceIO.isSpeaking && (
-            <div className="flex items-center gap-2 px-3 py-2 mb-2 rounded-lg bg-primary/10 border border-primary/30">
-              <Volume2 className="w-4 h-4 text-primary animate-pulse" />
-              <span className="text-sm text-primary font-medium">Speaking response...</span>
-              <Button 
-                variant="ghost" 
-                size="sm" 
-                className="h-6 px-2 text-xs"
-                onClick={() => voiceIO.stopSpeaking()}
-              >
-                Stop
-              </Button>
-            </div>
-          )}
+          <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileUpload} accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png,.xlsx,.xls,.zip,.webp,.bmp,.tiff,.gif" multiple />
 
-          <Textarea 
-            placeholder={voiceIO.isListening ? '🎤 Speak now...' : getPlaceholder()} 
-            value={input} 
-            onChange={(e) => setInput(e.target.value)} 
-            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }}} 
-            className={`min-h-[60px] max-h-[120px] resize-none ${voiceIO.isListening ? 'border-destructive/50' : ''}`} 
-            disabled={isLoading || isScrapingUrl || isImageProcessing}
-          />
-
-          <div className="flex flex-col gap-2">
-            {/* Voice Input Button */}
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button 
-                    variant="outline" 
-                    size="icon" 
-                    onClick={() => {
-                      if (!voiceIO.isSupported) {
-                        toast({ title: "Not Supported", description: "Voice input is not supported in this browser.", variant: "destructive" });
-                        return;
-                      }
-                      voiceIO.toggleListening();
-                      if (!voiceIO.isListening) {
-                        setVoiceModeEnabled(true);
-                        toast({ title: "🎤 Voice Mode Active", description: "Speak now. TTS will read the response." });
-                      }
-                    }} 
-                    className={`relative transition-all ${
-                      voiceIO.isListening 
-                        ? 'bg-destructive text-destructive-foreground animate-pulse' 
-                        : voiceModeEnabled 
-                          ? 'bg-primary/20 border-primary' 
-                          : ''
-                    }`}
-                    disabled={isLoading || isStreaming}
-                  >
-                    {voiceIO.isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-                    {voiceIO.isListening && (
-                      <span className="absolute -top-1 -right-1 w-2 h-2 bg-destructive rounded-full animate-ping" />
-                    )}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {voiceIO.isListening ? 'Stop Listening' : 'Voice Input (Tap to Speak)'}
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-            
-            {/* TTS Toggle Button */}
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button 
-                    variant="outline" 
-                    size="icon"
-                    onClick={() => {
-                      if (voiceIO.isSpeaking) {
-                        voiceIO.stopSpeaking();
-                      } else {
-                        setVoiceModeEnabled(!voiceModeEnabled);
-                        toast({ 
-                          title: !voiceModeEnabled ? "🔊 TTS Enabled" : "🔇 TTS Disabled", 
-                          description: !voiceModeEnabled ? "Responses will be spoken aloud." : "Responses will be text only."
-                        });
-                      }
-                    }}
-                    className={`${voiceModeEnabled ? 'bg-primary/20 border-primary' : ''} ${voiceIO.isSpeaking ? 'animate-pulse' : ''}`}
-                  >
-                    {voiceIO.isSpeaking ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {voiceIO.isSpeaking ? 'Stop Speaking' : voiceModeEnabled ? 'Disable TTS' : 'Enable TTS'}
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-            
-            {/* Send Button */}
-            <Button 
-              size="icon" 
-              onClick={handleSend} 
-              disabled={
-                (imageMode === 'off' && !input.trim() && !uploadedFile) || 
-                (imageMode === 'generate' && !input.trim()) ||
-                ((imageMode === 'analyze' || imageMode === 'edit') && !uploadedImage) ||
-                isLoading || isScrapingUrl || isImageProcessing
-              } 
-              className={`glow-button ${imageMode !== 'off' ? 'bg-gradient-to-r from-pink-500 to-purple-500' : 'bg-gradient-to-r from-primary to-primary-glow'}`}
-            >
-              {isImageProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-            </Button>
-          </div>
+          {/* Send/Stop Button */}
+          <Button 
+            size="icon" 
+            className={`h-10 w-10 ${
+              isStreaming || isLoading || isImageProcessing 
+                ? 'bg-destructive hover:bg-destructive/90' 
+                : imageMode !== 'off' 
+                  ? 'bg-gradient-to-r from-pink-500 to-purple-500 hover:from-pink-600 hover:to-purple-600' 
+                  : 'bg-gradient-to-r from-primary to-primary-glow'
+            }`}
+            onClick={() => {
+              if (isStreaming || isLoading) {
+                // Cancel generation
+                cancelStreaming();
+                voiceIO.stopSpeaking();
+                resetStream();
+                setIsLoading(false);
+                toast({ title: "Cancelled", description: "Generation stopped." });
+              } else {
+                handleSend();
+              }
+            }}
+            disabled={
+              !isStreaming && !isLoading && 
+              ((imageMode === 'off' && !input.trim() && !uploadedFile) || 
+              (imageMode === 'generate' && !input.trim()) ||
+              ((imageMode === 'analyze' || imageMode === 'edit') && !uploadedImage))
+            } 
+          >
+            {isStreaming || isLoading || isImageProcessing ? (
+              <Square className="h-4 w-4 fill-current" />
+            ) : (
+              <Send className="h-4 w-4" />
+            )}
+          </Button>
         </div>
+
+        {/* Hint for first-time users */}
+        {messages.length === 0 && !input && (
+          <p className="text-xs text-muted-foreground text-center mt-2">
+            💡 Tap <span className="font-medium">＋</span> to explore Lawyer Mode, Image AI, and more tools
+          </p>
+        )}
       </div>
     </div>
   );
