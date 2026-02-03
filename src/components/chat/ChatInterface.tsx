@@ -1280,7 +1280,7 @@ ${scrapedContent.content?.substring(0, 15000) || 'No content extracted'}
                   handleSend(); 
                 }
               }} 
-              className={`min-h-[52px] max-h-[120px] resize-none rounded-2xl text-base px-4 py-3 ${
+              className={`min-h-[44px] max-h-[100px] resize-none rounded-2xl text-base px-4 py-2.5 ${
                 voiceIO.isListening ? 'border-destructive/50 bg-destructive/5' : 'border-border/50'
               }`} 
               disabled={isLoading || isScrapingUrl || isImageProcessing}
@@ -1419,12 +1419,6 @@ ${scrapedContent.content?.substring(0, 15000) || 'No content extracted'}
         
         <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileUpload} accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png,.xlsx,.xls,.zip,.webp,.bmp,.tiff,.gif" multiple />
 
-        {/* Hint for first-time users */}
-        {messages.length === 0 && !input && (
-          <p className="text-xs text-muted-foreground text-center mt-2">
-            💡 Tap <span className="font-medium">＋</span> to explore Lawyer Mode, Image AI, and more
-          </p>
-        )}
       </div>
     </div>
   );
