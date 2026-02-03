@@ -53,17 +53,19 @@ const PlusButtonMenu = ({
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button
-          variant="outline"
+          variant="ghost"
           size="icon"
           disabled={disabled}
-          className={`transition-all duration-200 ${
-            hasActiveMode ? 'bg-gradient-to-r from-pink-500/20 to-purple-500/20 border-pink-500/50' : ''
+          className={`h-10 w-10 rounded-full border transition-all duration-200 ${
+            hasActiveMode 
+              ? 'bg-gradient-to-r from-pink-500/20 to-purple-500/20 border-pink-500/50' 
+              : 'border-border/50 hover:bg-muted'
           }`}
         >
-          {hasActiveMode ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+          {hasActiveMode ? <X className="h-5 w-5" /> : <Plus className="h-5 w-5" />}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-56">
+      <DropdownMenuContent align="start" className="w-56">
         {/* Personality Modes */}
         <DropdownMenuLabel className="text-xs text-muted-foreground">Personality Mode</DropdownMenuLabel>
         {personalityItems.map((item) => (

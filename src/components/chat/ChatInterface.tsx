@@ -8,7 +8,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+// Select removed - using DropdownMenu for language
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
@@ -1260,24 +1260,12 @@ ${scrapedContent.content?.substring(0, 15000) || 'No content extracted'}
           </div>
         )}
 
-        {/* Main Input Row */}
-        <div className="flex items-end gap-2">
-          {/* Language Selector Button - Always visible outside plus menu */}
-          <Select value={language} onValueChange={(v: any) => setLanguage(v)}>
-            <SelectTrigger className="w-auto h-10 px-3 text-sm border-border/50">
-              <Languages className="h-4 w-4" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="english">🇬🇧 English</SelectItem>
-              <SelectItem value="bangla">🇧🇩 বাংলা</SelectItem>
-              <SelectItem value="mixed">🌐 Mixed</SelectItem>
-            </SelectContent>
-          </Select>
-
-          {/* Input Field with integrated Mic button */}
-          <div className="flex-1 relative">
+        {/* ChatGPT-Style Input: Text box on top, buttons below */}
+        <div className="space-y-2">
+          {/* Text Input Area */}
+          <div className="relative">
             <Textarea 
-              placeholder={voiceIO.isListening ? '🎤 Speak now...' : getPlaceholder()} 
+              placeholder={voiceIO.isListening ? '🎤 Speak now...' : (imageMode === 'off' ? 'Ask JurisMind...' : getPlaceholder())} 
               value={input} 
               onChange={(e) => {
                 setInput(e.target.value);
@@ -1292,117 +1280,149 @@ ${scrapedContent.content?.substring(0, 15000) || 'No content extracted'}
                   handleSend(); 
                 }
               }} 
-              className={`min-h-[44px] max-h-[120px] resize-none pr-12 ${
-                voiceIO.isListening ? 'border-destructive/50 bg-destructive/5' : ''
+              className={`min-h-[52px] max-h-[120px] resize-none rounded-2xl text-base px-4 py-3 ${
+                voiceIO.isListening ? 'border-destructive/50 bg-destructive/5' : 'border-border/50'
               }`} 
               disabled={isLoading || isScrapingUrl || isImageProcessing}
             />
-            
-            {/* Integrated Mic Button inside Input */}
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              className={`absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8 ${
-                voiceIO.isListening 
-                  ? 'bg-destructive text-destructive-foreground' 
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-              onClick={() => {
-                if (!voiceIO.isSupported) {
-                  toast({ title: "Not Supported", description: "Voice input is not supported in this browser.", variant: "destructive" });
-                  return;
-                }
-                voiceIO.toggleListening();
-                if (!voiceIO.isListening) {
-                  setVoiceModeEnabled(true);
-                }
-              }}
-              disabled={isLoading || isStreaming}
-            >
-              {voiceIO.isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-            </Button>
           </div>
 
-          {/* Plus Button - Feature Launcher */}
-          <PlusButtonMenu
-            personality={personality}
-            responseMode={responseMode}
-            imageMode={imageMode}
-            onPersonalityChange={setPersonality}
-            onResponseModeChange={handleResponseModeChange}
-            onImageModeChange={(mode) => {
-              setImageMode(mode);
-              if (mode !== 'off') {
-                toast({ 
-                  title: `🖼 ${mode.charAt(0).toUpperCase() + mode.slice(1)} Mode`, 
-                  description: mode === 'generate' ? 'Describe the image to generate' : mode === 'analyze' ? 'Upload an image to analyze' : 'Upload an image to edit'
-                });
-              }
-            }}
-            disabled={isLoading || isImageProcessing}
-          />
+          {/* Button Row: [Upload] [Plus] [Language] ... spacer ... [Mic] [Send] */}
+          <div className="flex items-center gap-2">
+            {/* Left Group: Upload, Plus, Language */}
+            <div className="flex items-center gap-1.5">
+              {/* File Upload Button */}
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      className="h-10 w-10 rounded-full border border-border/50"
+                      onClick={() => fileInputRef.current?.click()} 
+                      disabled={isUploading || isOcrProcessing}
+                    >
+                      {isUploading || isOcrProcessing ? <Loader2 className="h-5 w-5 animate-spin" /> : <Upload className="h-5 w-5" />}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Upload File or Image</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
 
-          {/* Upload Button (for files/images) */}
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button 
-                  variant="outline" 
-                  size="icon" 
-                  className="h-10 w-10"
-                  onClick={() => fileInputRef.current?.click()} 
-                  disabled={isUploading || isOcrProcessing}
-                >
-                  {isUploading || isOcrProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Upload File or Image</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-          
-          <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileUpload} accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png,.xlsx,.xls,.zip,.webp,.bmp,.tiff,.gif" multiple />
+              {/* Plus Button - Feature Launcher */}
+              <PlusButtonMenu
+                personality={personality}
+                responseMode={responseMode}
+                imageMode={imageMode}
+                onPersonalityChange={setPersonality}
+                onResponseModeChange={handleResponseModeChange}
+                onImageModeChange={(mode) => {
+                  setImageMode(mode);
+                  if (mode !== 'off') {
+                    toast({ 
+                      title: `🖼 ${mode.charAt(0).toUpperCase() + mode.slice(1)} Mode`, 
+                      description: mode === 'generate' ? 'Describe the image to generate' : mode === 'analyze' ? 'Upload an image to analyze' : 'Upload an image to edit'
+                    });
+                  }
+                }}
+                disabled={isLoading || isImageProcessing}
+              />
 
-          {/* Send/Stop Button */}
-          <Button 
-            size="icon" 
-            className={`h-10 w-10 ${
-              isStreaming || isLoading || isImageProcessing 
-                ? 'bg-destructive hover:bg-destructive/90' 
-                : imageMode !== 'off' 
-                  ? 'bg-gradient-to-r from-pink-500 to-purple-500 hover:from-pink-600 hover:to-purple-600' 
-                  : 'bg-gradient-to-r from-primary to-primary-glow'
-            }`}
-            onClick={() => {
-              if (isStreaming || isLoading) {
-                // Cancel generation
-                cancelStreaming();
-                voiceIO.stopSpeaking();
-                resetStream();
-                setIsLoading(false);
-                toast({ title: "Cancelled", description: "Generation stopped." });
-              } else {
-                handleSend();
-              }
-            }}
-            disabled={
-              !isStreaming && !isLoading && 
-              ((imageMode === 'off' && !input.trim() && !uploadedFile) || 
-              (imageMode === 'generate' && !input.trim()) ||
-              ((imageMode === 'analyze' || imageMode === 'edit') && !uploadedImage))
-            } 
-          >
-            {isStreaming || isLoading || isImageProcessing ? (
-              <Square className="h-4 w-4 fill-current" />
-            ) : (
-              <Send className="h-4 w-4" />
-            )}
-          </Button>
+              {/* Language Selector Button */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" className="h-10 w-10 rounded-full border border-border/50">
+                    <Languages className="h-5 w-5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  <DropdownMenuItem onClick={() => setLanguage('english')} className={language === 'english' ? 'bg-primary/10' : ''}>
+                    🇬🇧 English {language === 'english' && '✓'}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setLanguage('bangla')} className={language === 'bangla' ? 'bg-primary/10' : ''}>
+                    🇧🇩 বাংলা {language === 'bangla' && '✓'}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setLanguage('mixed')} className={language === 'mixed' ? 'bg-primary/10' : ''}>
+                    🌐 Mixed {language === 'mixed' && '✓'}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+
+            {/* Spacer */}
+            <div className="flex-1" />
+
+            {/* Right Group: Mic and Send */}
+            <div className="flex items-center gap-1.5">
+              {/* Mic Button */}
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                className={`h-10 w-10 rounded-full border ${
+                  voiceIO.isListening 
+                    ? 'bg-destructive border-destructive text-destructive-foreground' 
+                    : 'border-border/50 hover:bg-muted'
+                }`}
+                onClick={() => {
+                  if (!voiceIO.isSupported) {
+                    toast({ title: "Not Supported", description: "Voice input is not supported in this browser.", variant: "destructive" });
+                    return;
+                  }
+                  voiceIO.toggleListening();
+                  if (!voiceIO.isListening) {
+                    setVoiceModeEnabled(true);
+                  }
+                }}
+                disabled={isLoading || isStreaming}
+              >
+                {voiceIO.isListening ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
+              </Button>
+
+              {/* Send/Stop Button */}
+              <Button 
+                size="icon" 
+                className={`h-10 w-10 rounded-full ${
+                  isStreaming || isLoading || isImageProcessing 
+                    ? 'bg-destructive hover:bg-destructive/90' 
+                    : imageMode !== 'off' 
+                      ? 'bg-gradient-to-r from-pink-500 to-purple-500 hover:from-pink-600 hover:to-purple-600' 
+                      : 'bg-primary hover:bg-primary/90'
+                }`}
+                onClick={() => {
+                  if (isStreaming || isLoading) {
+                    // Cancel generation
+                    cancelStreaming();
+                    voiceIO.stopSpeaking();
+                    resetStream();
+                    setIsLoading(false);
+                    toast({ title: "Cancelled", description: "Generation stopped." });
+                  } else {
+                    handleSend();
+                  }
+                }}
+                disabled={
+                  !isStreaming && !isLoading && 
+                  ((imageMode === 'off' && !input.trim() && !uploadedFile) || 
+                  (imageMode === 'generate' && !input.trim()) ||
+                  ((imageMode === 'analyze' || imageMode === 'edit') && !uploadedImage))
+                } 
+              >
+                {isStreaming || isLoading || isImageProcessing ? (
+                  <Square className="h-5 w-5 fill-current" />
+                ) : (
+                  <Send className="h-5 w-5" />
+                )}
+              </Button>
+            </div>
+          </div>
         </div>
+        
+        <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileUpload} accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png,.xlsx,.xls,.zip,.webp,.bmp,.tiff,.gif" multiple />
 
         {/* Hint for first-time users */}
         {messages.length === 0 && !input && (
           <p className="text-xs text-muted-foreground text-center mt-2">
-            💡 Tap <span className="font-medium">＋</span> to explore Lawyer Mode, Image AI, and more tools
+            💡 Tap <span className="font-medium">＋</span> to explore Lawyer Mode, Image AI, and more
           </p>
         )}
       </div>
