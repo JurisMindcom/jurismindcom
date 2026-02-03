@@ -75,7 +75,7 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [personality, setPersonality] = useState<'lawyer' | 'judge' | 'researcher' | 'student'>('lawyer');
-  const [language, setLanguage] = useState<'bangla' | 'english' | 'mixed'>('english');
+  const [language, setLanguage] = useState<'bangla' | 'english' | 'mixed'>('bangla');
   // isListening is now handled by voiceIO hook
   const [responseMode, setResponseMode] = useState<'short' | 'deep' | 'extreme'>('deep');
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -1440,13 +1440,13 @@ ${scrapedContent.content?.substring(0, 15000) || 'No content extracted'}
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start">
-                  <DropdownMenuItem onClick={() => setLanguage('english')} className={language === 'english' ? 'bg-primary/10' : ''}>
-                    🇬🇧 English {language === 'english' && '✓'}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setLanguage('bangla')} className={language === 'bangla' ? 'bg-primary/10' : ''}>
+                  <DropdownMenuItem onClick={() => setLanguage('bangla')} className={language === 'bangla' ? 'bg-accent/20' : ''}>
                     🇧🇩 বাংলা {language === 'bangla' && '✓'}
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setLanguage('mixed')} className={language === 'mixed' ? 'bg-primary/10' : ''}>
+                  <DropdownMenuItem onClick={() => setLanguage('english')} className={language === 'english' ? 'bg-accent/20' : ''}>
+                    🇬🇧 English {language === 'english' && '✓'}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setLanguage('mixed')} className={language === 'mixed' ? 'bg-accent/20' : ''}>
                     🌐 Mixed {language === 'mixed' && '✓'}
                   </DropdownMenuItem>
                 </DropdownMenuContent>
