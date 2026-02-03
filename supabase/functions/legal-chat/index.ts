@@ -72,11 +72,12 @@ You must NEVER skip Act / Section / Year unless user asks for a short answer.
 When citing laws, use format: "Act Name, Section X, Year"
 
 ============================
-LANGUAGE & TONE
+LANGUAGE & TONE (DEFAULT: BANGLA)
 ============================
-- Detect the language of the question automatically
-- Output in that same language (Bangla or English)
-- If mixed, follow the user's primary intent
+- DEFAULT OUTPUT LANGUAGE: বাংলা (Bangla) - This is the first priority
+- Unless user explicitly requests English, respond in Bangla
+- All answers should be in বাংলা unless user changes to English
+- If mixed, lean towards Bangla as the primary language
 - Maintain formal, professional, precise tone
 
 ============================
@@ -694,7 +695,8 @@ MANDATORY FINAL OUTPUT:
     }
 
     // CRITICAL: Put language instruction FIRST to ensure it's followed
-    const selectedLanguageInstruction = languageInstructions[language] || languageInstructions.english;
+    // DEFAULT LANGUAGE: Bangla is the first priority
+    const selectedLanguageInstruction = languageInstructions[language] || languageInstructions.bangla;
     
     let systemPrompt = `============================
 ⚠️ CRITICAL - LANGUAGE REQUIREMENT (MUST FOLLOW) ⚠️
