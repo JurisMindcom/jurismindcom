@@ -16,6 +16,8 @@ interface ImageResult {
 type ImageConfig = {
   aspectRatio?: string;
   imageSize?: '1K' | '2K' | '4K';
+  style?: string;
+  imageCount?: number;
 };
 
 export const useImageAI = () => {
@@ -43,10 +45,17 @@ export const useImageAI = () => {
       const invokePromise = supabase.functions.invoke('process-image', {
         body: {
           action,
-          prompt,
+          prompt: config?.style && config.style !== 'normal' 
+            ? `[Style: ${config.style}] ${prompt}` 
+            : prompt,
           imageBase64,
-          editInstructions,
-          imageConfig: config,
+          editInstructions: config?.style && config.style !== 'normal' && editInstructions
+            ? `[Style: ${config.style}] ${editInstructions}`
+            : editInstructions,
+          imageConfig: config ? {
+            aspectRatio: config.aspectRatio,
+            imageSize: config.imageSize,
+          } : undefined,
         },
       });
 

@@ -117,14 +117,18 @@ async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: nu
 
 // Generate image with Lovable AI Gateway (no API key needed)
 async function generateWithLovableGateway(prompt: string, aspectRatio?: string) {
-  console.log('Generating image with Lovable AI Gateway (google/gemini-2.5-flash-image-preview)...');
+  console.log('Generating image with Lovable AI Gateway (google/gemini-2.5-flash-image)...');
 
   const lovableApiKey = Deno.env.get('LOVABLE_API_KEY');
   if (!lovableApiKey) {
     throw new Error('LOVABLE_API_KEY is not configured. Please contact support.');
   }
 
-  const ratioHint = aspectRatio ? `\nAspect ratio: ${aspectRatio}.` : '';
+  // Build enhanced prompt with aspect ratio hint
+  let enhancedPrompt = `Generate a high-quality, professional image: ${prompt}`;
+  if (aspectRatio && aspectRatio !== 'auto' && aspectRatio !== '1:1') {
+    enhancedPrompt += `\nAspect ratio: ${aspectRatio}. Compose the image appropriately for this ratio.`;
+  }
 
   const response = await fetchWithTimeout('https://ai.gateway.lovable.dev/v1/chat/completions', {
     method: 'POST',
@@ -133,11 +137,11 @@ async function generateWithLovableGateway(prompt: string, aspectRatio?: string) 
       'Authorization': `Bearer ${lovableApiKey}`,
     },
     body: JSON.stringify({
-      model: 'google/gemini-2.5-flash-image-preview',
+      model: 'google/gemini-2.5-flash-image',
       messages: [
         {
           role: 'user',
-          content: `Generate a high-quality image: ${prompt}${ratioHint}`
+          content: enhancedPrompt
         }
       ],
       modalities: ['image', 'text'],
@@ -363,6 +367,9 @@ async function editWithLovableGateway(imageBase64: string, editInstructions: str
     throw new Error('LOVABLE_API_KEY is not configured. Please contact support.');
   }
 
+  // Build comprehensive edit prompt
+  const enhancedInstructions = `Edit this image according to these instructions: ${editInstructions}\n\nMaintain high quality and professional appearance.`;
+
   const response = await fetchWithTimeout('https://ai.gateway.lovable.dev/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -370,12 +377,12 @@ async function editWithLovableGateway(imageBase64: string, editInstructions: str
       'Authorization': `Bearer ${lovableApiKey}`,
     },
     body: JSON.stringify({
-      model: 'google/gemini-2.5-flash-image-preview',
+      model: 'google/gemini-2.5-flash-image',
       messages: [
         {
           role: 'user',
           content: [
-            { type: 'text', text: editInstructions },
+            { type: 'text', text: enhancedInstructions },
             { type: 'image_url', image_url: { url: imageBase64 } }
           ]
         }
