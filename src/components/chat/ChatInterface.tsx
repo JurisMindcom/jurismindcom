@@ -508,8 +508,8 @@ ${ocrResult.summary}
         ? `✏️ Edit image${imagesCount} (${effectiveRatio}${styleLabel}): ${userPrompt}`
         : `🔍 Analyze image${imagesCount}${userPrompt ? `: ${userPrompt}` : ''}`;
 
-    // Always show the user prompt + an in-chat processing message
-    // For analyze/edit, also include the uploaded image in user message for immediate display
+    // IMMEDIATE UI UPDATE: Show user message + processing placeholder INSTANTLY
+    // This ensures the user sees feedback immediately, no blank screen
     setMessages(prev => [
       ...prev,
       {
@@ -530,6 +530,11 @@ ${ocrResult.summary}
         pendingOriginalImage: (imageMode === 'edit') && uploadedImage ? uploadedImage : undefined,
       },
     ]);
+
+    // CRITICAL: Immediately scroll to bottom to show the placeholder
+    setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, 50);
 
     setInput('');
     setIsLoading(true);
