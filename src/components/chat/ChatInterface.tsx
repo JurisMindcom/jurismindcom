@@ -97,6 +97,7 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
   const [uploadedImages, setUploadedImages] = useState<string[]>([]);
   const [pendingTTSContent, setPendingTTSContent] = useState<string | null>(null); // Content to speak via TTS button
   const [voiceInputUsed, setVoiceInputUsed] = useState(false); // Track if voice was used for current message
+  const [voiceOutputEnabled, setVoiceOutputEnabled] = useState(false); // Voice output toggle button state
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -114,8 +115,16 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
   const voiceIO = useVoiceIO({
     language: language,
     onTranscript: (text, isFinal) => {
-      // Voice input is processed internally - we'll send when recording stops
-      // No transcription shown to user per requirements
+      // Show transcription in input with "Voice Input: " prefix
+      if (isFinal && text.trim()) {
+        setInput(prev => {
+          const voicePrefix = 'Voice Input: ';
+          const existingContent = prev.startsWith(voicePrefix) 
+            ? prev.slice(voicePrefix.length) 
+            : prev;
+          return voicePrefix + (existingContent + ' ' + text).trim();
+        });
+      }
     },
     onError: (error) => {
       toast({ title: "Voice Error", description: error, variant: "destructive" });
@@ -149,13 +158,14 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
 
   // Auto-trigger TTS for voice input questions when streaming completes
   useEffect(() => {
-    // Only auto-trigger TTS if voice input was used for this message
+    // Only auto-trigger TTS if voice input was used for this message AND voice output is enabled
     if (!voiceInputUsed || isStreaming || !streamingContent) return;
     
     // When streaming ends, set the content for TTS button to speak
     if (streamingContent && streamingContent.length > 10) {
       setPendingTTSContent(streamingContent);
-      // Auto-trigger TTS for voice input questions
+      // Auto-trigger TTS for voice input questions - also enable voice output button glow
+      setVoiceOutputEnabled(true);
       browserTTS.speak(streamingContent);
     }
   }, [isStreaming, streamingContent, voiceInputUsed]);
@@ -170,6 +180,20 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
       }, 500);
     }
   }, [isStreaming, isLoading]);
+
+  // Reset voice output glow when TTS stops
+  useEffect(() => {
+    if (!browserTTS.isSpeaking && voiceOutputEnabled) {
+      // Keep enabled for a moment to show it finished
+      const timer = setTimeout(() => {
+        // Only reset if not speaking anymore
+        if (!browserTTS.isSpeaking) {
+          setVoiceOutputEnabled(false);
+        }
+      }, 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [browserTTS.isSpeaking]);
 
   useEffect(() => {
     if (conversationId) {
@@ -812,6 +836,12 @@ ${ocrResult.summary}
     }
     
     if (!input.trim() && !uploadedFile) return;
+    
+    // Check if this is a voice input message (starts with "Voice Input: ")
+    const isVoiceInput = input.trim().startsWith('Voice Input: ');
+    if (isVoiceInput) {
+      setVoiceInputUsed(true);
+    }
     if (isLoading || isStreaming) return;
 
     let userMessage = input.trim();
@@ -928,8 +958,9 @@ ${scrapedContent.content?.substring(0, 15000) || 'No content extracted'}
           // Set pending TTS content for the Speak button
           setPendingTTSContent(assistantMsg.content);
           
-          // If voice mode was used, auto-speak the response via TTS button
+          // If voice mode was used, auto-speak the response via TTS button and enable glow
           if (voiceInputUsed) {
+            setVoiceOutputEnabled(true);
             browserTTS.speak(assistantMsg.content);
           }
         }
@@ -1230,20 +1261,39 @@ ${scrapedContent.content?.substring(0, 15000) || 'No content extracted'}
               <VoiceWaveform isActive={voiceIO.isListening} />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-destructive">
-                  {voiceIO.interimTranscript || 'Listening...'}
+                  {voiceIO.interimTranscript ? `"${voiceIO.interimTranscript}"` : 'Listening... speak now'}
                 </p>
-                {voiceIO.transcript && (
-                  <p className="text-xs text-muted-foreground truncate">{voiceIO.transcript}</p>
-                )}
+                <p className="text-xs text-muted-foreground">
+                  Your speech will appear in the input box
+                </p>
               </div>
-              <Button 
-                variant="ghost" 
-                size="sm" 
-                className="h-7 px-2 text-xs text-destructive hover:bg-destructive/20"
-                onClick={() => voiceIO.stopListening()}
-              >
-                Cancel
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button 
+                  variant="default"
+                  size="sm" 
+                  className="h-7 px-3 text-xs bg-accent hover:bg-accent/90"
+                  onClick={() => {
+                    voiceIO.stopListening();
+                    // Auto-send if there's voice input
+                    if (input.startsWith('Voice Input: ') && input.length > 13) {
+                      setTimeout(() => handleSend(), 100);
+                    }
+                  }}
+                >
+                  Done & Send
+                </Button>
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  className="h-7 px-2 text-xs text-destructive hover:bg-destructive/20"
+                  onClick={() => {
+                    voiceIO.stopListening();
+                    setInput('');
+                  }}
+                >
+                  Cancel
+                </Button>
+              </div>
             </div>
           </div>
         )}
@@ -1318,10 +1368,14 @@ ${scrapedContent.content?.substring(0, 15000) || 'No content extracted'}
               value={input} 
               onChange={(e) => {
                 setInput(e.target.value);
-                // Auto-disable voice mode when typing - reset voice flag
-                if (voiceIO.isListening && e.target.value.trim()) {
+                // If user types manually (not voice input prefix), disable auto voice output
+                const isVoicePrefix = e.target.value.startsWith('Voice Input: ');
+                if (!isVoicePrefix && voiceIO.isListening) {
                   voiceIO.stopListening();
-                  setVoiceInputUsed(false); // Reset: typing overrides voice
+                }
+                // Only reset voice output if user clears the voice input prefix
+                if (!isVoicePrefix && voiceOutputEnabled && !browserTTS.isSpeaking) {
+                  // Keep voice output enabled if manually turned on
                 }
               }}
               onKeyDown={(e) => { 
@@ -1402,8 +1456,83 @@ ${scrapedContent.content?.substring(0, 15000) || 'No content extracted'}
             {/* Spacer */}
             <div className="flex-1" />
 
-            {/* Right Group: Mic and Send */}
+            {/* Right Group: Voice Output, Mic and Send */}
             <div className="flex items-center gap-1.5">
+              {/* Voice Output Toggle Button - Glows when active */}
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      className={`h-10 w-10 rounded-full border relative ${
+                        voiceOutputEnabled || browserTTS.isSpeaking
+                          ? 'bg-accent/20 border-accent text-accent' 
+                          : 'border-border/50 hover:bg-muted'
+                      }`}
+                      onClick={() => {
+                        if (browserTTS.isSpeaking) {
+                          browserTTS.stop();
+                          setVoiceOutputEnabled(false);
+                        } else if (pendingTTSContent) {
+                          setVoiceOutputEnabled(true);
+                          browserTTS.speak(pendingTTSContent);
+                        } else {
+                          setVoiceOutputEnabled(!voiceOutputEnabled);
+                          if (!voiceOutputEnabled) {
+                            toast({ title: "Voice Output Enabled", description: "Responses will be spoken aloud." });
+                          }
+                        }
+                      }}
+                    >
+                      {/* Glow effect when active */}
+                      {(voiceOutputEnabled || browserTTS.isSpeaking) && (
+                        <motion.div
+                          className="absolute inset-0 rounded-full bg-accent/30"
+                          animate={{
+                            opacity: [0.3, 0.6, 0.3],
+                            scale: [1, 1.15, 1],
+                          }}
+                          transition={{
+                            duration: 1.5,
+                            repeat: Infinity,
+                            ease: 'easeInOut',
+                          }}
+                        />
+                      )}
+                      {/* Orange indicator dots when speaking */}
+                      {browserTTS.isSpeaking && (
+                        <div className="absolute -top-0.5 -right-0.5 flex gap-0.5">
+                          {[0, 1, 2].map((i) => (
+                            <motion.span
+                              key={i}
+                              className="w-1.5 h-1.5 rounded-full bg-accent"
+                              animate={{
+                                opacity: [0.4, 1, 0.4],
+                                scale: [0.8, 1.3, 0.8],
+                              }}
+                              transition={{
+                                duration: 0.6,
+                                repeat: Infinity,
+                                delay: i * 0.12,
+                              }}
+                            />
+                          ))}
+                        </div>
+                      )}
+                      {browserTTS.isSpeaking ? (
+                        <VolumeX className="h-5 w-5 relative z-10" />
+                      ) : (
+                        <Volume2 className="h-5 w-5 relative z-10" />
+                      )}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {browserTTS.isSpeaking ? 'Stop Speaking' : voiceOutputEnabled ? 'Voice Output On' : 'Enable Voice Output'}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+
               {/* Mic Button */}
               <Button 
                 variant="ghost" 
@@ -1418,11 +1547,12 @@ ${scrapedContent.content?.substring(0, 15000) || 'No content extracted'}
                     toast({ title: "Not Supported", description: "Voice input is not supported in this browser.", variant: "destructive" });
                     return;
                   }
-                  voiceIO.toggleListening();
-                  // When starting to listen, voice mode is enabled for TTS
                   if (!voiceIO.isListening) {
-                    setVoiceInputUsed(true); // Mark voice will be used
+                    // Starting to listen - clear input and set voice prefix
+                    setInput('Voice Input: ');
+                    setVoiceOutputEnabled(true); // Auto-enable voice output for voice input
                   }
+                  voiceIO.toggleListening();
                 }}
                 disabled={isLoading || isStreaming}
               >
@@ -1445,6 +1575,7 @@ ${scrapedContent.content?.substring(0, 15000) || 'No content extracted'}
                     cancelStreaming();
                     browserTTS.stop(); // Stop browser TTS
                     setVoiceInputUsed(false); // Reset voice flag
+                    setVoiceOutputEnabled(false); // Reset voice output
                     resetStream();
                     setIsLoading(false);
                     toast({ title: "Cancelled", description: "Generation stopped." });
