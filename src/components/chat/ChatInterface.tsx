@@ -78,6 +78,7 @@ const ChatInterface = ({ userId, conversationId, onNewConversation }: ChatInterf
   const [language, setLanguage] = useState<'bangla' | 'english' | 'mixed'>('bangla');
   // isListening is now handled by voiceIO hook
   const [responseMode, setResponseMode] = useState<'short' | 'deep' | 'extreme'>('deep');
+  const [aiMode, setAiMode] = useState<'normal' | 'student'>('normal');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -938,6 +939,7 @@ ${scrapedContent.content?.substring(0, 15000) || 'No content extracted'}
           language,
           responseMode,
           userId,
+          aiMode,
         },
         {
           'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
@@ -1021,6 +1023,31 @@ ${scrapedContent.content?.substring(0, 15000) || 'No content extracted'}
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden">
+      {/* Header with AI Mode Toggle */}
+      <div className="flex items-center justify-end px-4 py-2 border-b border-border/30">
+        <div className="flex items-center bg-muted/50 rounded-full p-0.5 border border-border/50">
+          <button
+            onClick={() => setAiMode('normal')}
+            className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all duration-200 ${
+              aiMode === 'normal'
+                ? 'bg-primary text-primary-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            Normal
+          </button>
+          <button
+            onClick={() => setAiMode('student')}
+            className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all duration-200 ${
+              aiMode === 'student'
+                ? 'bg-primary text-primary-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            Student
+          </button>
+        </div>
+      </div>
       <ScrollArea className="flex-1 p-4" ref={scrollAreaRef}>
         <AnimatePresence>
           {messages.length === 0 ? (
