@@ -1,10 +1,12 @@
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Scale, MessageSquare, FileText, Gavel, BookMarked, ArrowRight, Shield, Globe, Zap, GraduationCap, Code, Heart } from 'lucide-react';
+import { Scale, MessageSquare, FileText, Gavel, BookMarked, ArrowRight, Shield, Globe, Zap, GraduationCap, Code, Heart, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
-import creatorPhoto from '@/assets/creator-rony.png';
+import creatorPhotoAsset from '@/assets/creator-rony.jpg.asset.json';
+
+const creatorPhoto = creatorPhotoAsset.url;
 const Home = () => {
   const navigate = useNavigate();
 
@@ -293,14 +295,22 @@ const Home = () => {
                     </div>
                   </div>
 
-                  <Button
-                    variant="outline"
-                    className="mt-6"
-                    onClick={() => navigate('/about')}
-                  >
-                    Learn More About RONY
-                    <ArrowRight className="ml-2 h-4 w-4" />
-                  </Button>
+                  <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-center md:justify-start">
+                    <Button
+                      variant="outline"
+                      onClick={() => navigate('/about')}
+                    >
+                      Learn More About RONY
+                      <ArrowRight className="ml-2 h-4 w-4" />
+                    </Button>
+                    <Button
+                      size="lg"
+                      onClick={() => window.open('https://mahfuzahmedrony.dpdns.org/', '_blank', 'noopener,noreferrer')}
+                    >
+                      Portfolio
+                      <ExternalLink className="ml-2 h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
               </div>
             </Card>
