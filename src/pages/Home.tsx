@@ -4,9 +4,9 @@ import { Scale, MessageSquare, FileText, Gavel, BookMarked, ArrowRight, Shield, 
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
-import creatorPhotoAsset from '@/assets/creator-rony.jpg.asset.json';
+import creatorPhotoSrc from '@/assets/creator-rony.jpg';
 
-const creatorPhoto = creatorPhotoAsset.url;
+const creatorPhoto = creatorPhotoSrc;
 const Home = () => {
   const navigate = useNavigate();
 

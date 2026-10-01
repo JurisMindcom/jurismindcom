@@ -3,9 +3,9 @@ import { motion } from 'framer-motion';
 import { Scale, ArrowLeft, Target, Heart, Lightbulb, Users, Shield, Globe, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import creatorPhotoAsset from '@/assets/creator-rony.jpg.asset.json';
+import creatorPhotoSrc from '@/assets/creator-rony.jpg';
 
-const creatorPhoto = creatorPhotoAsset.url;
+const creatorPhoto = creatorPhotoSrc;
 
 const About = () => {
   const navigate = useNavigate();
