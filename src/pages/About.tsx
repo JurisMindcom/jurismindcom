@@ -1,8 +1,11 @@
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Scale, ArrowLeft, Target, Heart, Lightbulb, Users, Shield, Globe } from 'lucide-react';
+import { Scale, ArrowLeft, Target, Heart, Lightbulb, Users, Shield, Globe, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import creatorPhotoAsset from '@/assets/creator-rony.jpg.asset.json';
+
+const creatorPhoto = creatorPhotoAsset.url;
 
 const About = () => {
   const navigate = useNavigate();
@@ -111,8 +114,8 @@ const About = () => {
           >
             <h2 className="text-3xl font-bold mb-8">Meet the Creator</h2>
             <div className="glass-panel rounded-2xl p-8 md:p-12">
-              <div className="w-24 h-24 bg-gradient-to-br from-primary to-primary-glow rounded-full flex items-center justify-center mx-auto mb-6">
-                <span className="text-4xl font-bold text-primary-foreground">R</span>
+              <div className="w-24 h-24 rounded-full overflow-hidden ring-4 ring-primary/30 ring-offset-4 ring-offset-background mx-auto mb-6">
+                <img src={creatorPhoto} alt="RONY - Creator of JurisMind" className="h-full w-full object-cover" />
               </div>
               <h3 className="text-2xl font-bold text-primary mb-2">RONY</h3>
               <p className="text-muted-foreground mb-6">Founder & Creator of JurisMind</p>
@@ -121,6 +124,14 @@ const About = () => {
                 RONY created JurisMind to bridge the gap between legal expertise and 
                 everyday people who need accessible legal guidance in Bangladesh.
               </p>
+              <Button
+                size="lg"
+                className="mt-8"
+                onClick={() => window.open('https://mahfuzahmedrony.dpdns.org/', '_blank', 'noopener,noreferrer')}
+              >
+                Portfolio
+                <ExternalLink className="ml-2 h-4 w-4" />
+              </Button>
             </div>
           </motion.div>
         </div>
